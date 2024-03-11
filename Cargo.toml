@@ -8,5 +8,6 @@ edition = "2021"
 aead = "0.5.2"
 aes-gcm = { version = "0.10.3", features = ["stream"] }
 argon2 = { version = "0.5.3", features = ["std"] }
+filename = { git = "https://github.com/seanballais/rust-filename.git" }
 rand = "0.8.5"
 tempfile = "3.10.1"

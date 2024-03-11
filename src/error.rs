@@ -7,14 +7,13 @@ use std::sync::Arc;
 use aead;
 use argon2;
 
-
 #[derive(Debug, Clone)]
 pub enum Error {
     EmptyFileError,
     InvalidPasswordLengthError,
     Argon2Error(argon2::Error),
     IOError(Arc<io::Error>),
-    AEADError(aead::Error)
+    AEADError(aead::Error),
 }
 
 pub type Result<T> = core::result::Result<T, Error>;
@@ -27,10 +26,10 @@ impl Display for Error {
             Self::EmptyFileError => write!(f, "File is empty"),
             Self::InvalidPasswordLengthError => {
                 write!(f, "Password must be more than 12 characters")
-            },
+            }
             Self::Argon2Error(e) => write!(f, "Error while using Argon2 functions: {}", e),
             Self::IOError(e) => write!(f, "Error performing I/O operations: {}", e),
-            Self::AEADError(e) => write!(f, "Error while using AEAD functions: {}", e)
+            Self::AEADError(e) => write!(f, "Error while using AEAD functions: {}", e),
         }
     }
 }
@@ -42,9 +41,13 @@ impl From<argon2::Error> for Error {
 }
 
 impl From<io::Error> for Error {
-    fn from(e: io::Error) -> Self { Self::IOError(Arc::new(e)) }
+    fn from(e: io::Error) -> Self {
+        Self::IOError(Arc::new(e))
+    }
 }
 
 impl From<aead::Error> for Error {
-    fn from(e: aead::Error) -> Self { Self::AEADError(e) }
+    fn from(e: aead::Error) -> Self {
+        Self::AEADError(e)
+    }
 }

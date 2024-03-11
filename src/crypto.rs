@@ -1,5 +1,6 @@
+use std::ffi::OsStr;
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::{Read, Seek, Write};
 use std::sync::atomic;
 
 use aead;
@@ -7,6 +8,7 @@ use aead::KeyInit;
 use aes_gcm;
 use argon2;
 use argon2::Algorithm::Argon2id;
+use filename;
 
 use crate::error::Error;
 use crate::error::Result;
@@ -18,6 +20,61 @@ type SusiKey = [u8; 32];
 //
 // See: https://docs.rs/aead/latest/aead/stream/struct.StreamBE32.html
 type AES256GCMNonce = [u8; 7];
+
+pub const IO_BUFFER_LEN: usize = 1_048_576; // Equals to 1 MiB.
+
+// Remember that each metadata value only has a max length of 65,535 bytes, since we assign
+// two bytes in the metadata key to track the size of the value.
+const MAX_METADATA_VALUE_SIZE: usize = 65_535;
+
+pub fn encrypt_to_ssef_file(
+    src_file: &mut File,
+    dest_file: &mut File,
+    password: &[u8],
+    salt: &[u8],
+    nonce: &AES256GCMNonce,
+    buffer_len: &usize,
+    num_read_bytes: Option<&mut atomic::AtomicUsize>,
+    num_written_bytes: Option<&mut atomic::AtomicUsize>,
+) -> Result<()> {
+    // Let's just rewind the files back to make sure.
+    src_file.rewind()?;
+    dest_file.rewind()?;
+
+    let key = create_key_from_password(password, salt)?;
+
+    // File identifier = first two bytes (big-endian)
+    // Format version = last two bytes (little-endian)
+    let header: [u8; 4] = [0x55, 0x3F, 0x01, 0x00];
+
+    let filename_metadata = create_filename_metadata_item(src_file)?;
+    let salt_metadata = create_salt_metadata_item(salt);
+    let nonce_metadata = create_nonce_metadata_item(nonce);
+    let metadata_length = filename_metadata.len() + salt_metadata.len() + nonce_metadata.len();
+
+    // Plus two for metadata length
+    let mut metadata: Vec<u8> = Vec::with_capacity(metadata_length + 2);
+    metadata.push((metadata_length & 0xFF) as u8);
+    metadata.push((metadata_length >> 8 & 0xFF) as u8);
+    metadata.extend(filename_metadata.iter());
+    metadata.extend(salt_metadata.iter());
+    metadata.extend(nonce_metadata.iter());
+
+    dest_file.write_all(header.as_slice())?;
+    dest_file.write_all(metadata.as_slice())?;
+
+    encrypt_file(
+        src_file,
+        dest_file,
+        &key,
+        &nonce,
+        &buffer_len,
+        num_read_bytes,
+        num_written_bytes,
+    )?;
+
+    Ok(())
+}
 
 pub fn create_key_from_password(password: &[u8], salt: &[u8]) -> Result<SusiKey> {
     if password.len() < 12 {
@@ -39,7 +96,7 @@ pub fn encrypt_file(
     nonce: &AES256GCMNonce,
     buffer_len: &usize,
     num_read_bytes: Option<&mut atomic::AtomicUsize>,
-    num_written_bytes: Option<&mut atomic::AtomicUsize>
+    num_written_bytes: Option<&mut atomic::AtomicUsize>,
 ) -> Result<()> {
     let aead = aes_gcm::Aes256Gcm::new(key.as_ref().into());
     let mut stream_encryptor = aead::stream::EncryptorBE32::from_aead(aead, nonce.as_ref().into());
@@ -84,7 +141,7 @@ pub fn decrypt_file(
     nonce: &AES256GCMNonce,
     buffer_len: &usize,
     num_read_bytes: Option<&mut atomic::AtomicUsize>,
-    num_written_bytes: Option<&mut atomic::AtomicUsize>
+    num_written_bytes: Option<&mut atomic::AtomicUsize>,
 ) -> Result<()> {
     let aead = aes_gcm::Aes256Gcm::new(key.as_ref().into());
     let mut stream_decryptor = aead::stream::DecryptorBE32::from_aead(aead, nonce.as_ref().into());
@@ -122,10 +179,54 @@ pub fn decrypt_file(
     Ok(())
 }
 
+fn create_filename_metadata_item(src_file: &File) -> Result<Vec<u8>> {
+    // Note: No needed to check if the file name is too long, since the chances of it happening is
+    //       low and we will get an error beforehand if the file name is too long.
+    let filepath = filename::file_name(src_file)?;
+    let src_file_name = filepath
+        .file_name()
+        .unwrap_or_else(|| OsStr::new(""));
+
+    let filename_length = src_file_name.len();
+    let mut metadata_filename: Vec<u8> = Vec::with_capacity(4 + filename_length);
+    metadata_filename.push(0x00);
+    metadata_filename.push(0x01);
+
+    // Get the first byte of the length.
+    metadata_filename.push((filename_length & 0xFF) as u8);
+
+    // Get the second byte of the length.
+    metadata_filename.push((filename_length >> 8 & 0xFF) as u8);
+
+    metadata_filename.extend_from_slice(src_file_name.to_string_lossy().as_bytes());
+
+    Ok(metadata_filename)
+}
+
+fn create_salt_metadata_item(salt: &[u8]) -> Vec<u8> {
+    let mut salt_metadata: Vec<u8> = Vec::with_capacity(4 + salt.len());
+    salt_metadata.push(0xA5);
+    salt_metadata.push(0x19);
+    salt_metadata.extend_from_slice(salt);
+
+    salt_metadata
+}
+
+fn create_nonce_metadata_item(nonce: &AES256GCMNonce) -> Vec<u8> {
+    let mut nonce_metadata: Vec<u8> = Vec::with_capacity(4 + nonce.len());
+    nonce_metadata.push(0x90);
+    nonce_metadata.push(0x9C);
+    nonce_metadata.extend_from_slice(nonce.as_slice());
+
+    nonce_metadata
+}
+
 #[cfg(test)]
 mod tests {
-    use std::io::Seek;
+    use std::fs;
+
     use rand::{rngs::OsRng, RngCore};
+    use std::io::Seek;
     use tempfile::tempfile;
 
     use super::*;
@@ -163,13 +264,15 @@ mod tests {
             "The world for once, in perfect harmony\n",
             "With all its living things\n",
             "So many things to tell youuu\n",
-            "She'd turn away from meee");
+            "She'd turn away from meee"
+        );
         writeln!(src_file, "{}", contents).unwrap();
 
         // We need to wind back the file pointer in src_file since we wrote contents to it.
         src_file.rewind().unwrap();
 
-        let key = create_key_from_password(b"tale-as-old-as-time", b"song-as-old-as-rhyme").unwrap();
+        let key =
+            create_key_from_password(b"tale-as-old-as-time", b"song-as-old-as-rhyme").unwrap();
         let mut aes_nonce = AES256GCMNonce::default();
         OsRng.fill_bytes(&mut aes_nonce);
 
@@ -182,7 +285,8 @@ mod tests {
             &aes_nonce,
             &BUFFER_LEN,
             None,
-            None);
+            None,
+        );
         assert!(encryption_result.is_ok());
 
         // We need to wind back the file pointer in encrypted_file since we wrote contents to it.
@@ -195,7 +299,8 @@ mod tests {
             &aes_nonce,
             &BUFFER_LEN,
             None,
-            None);
+            None,
+        );
         assert!(decryption_result.is_ok());
 
         // We need to wind back the file pointer in the files below since we used them before.
@@ -205,7 +310,9 @@ mod tests {
         let mut original_contents = String::new();
         let mut decrypted_contents = String::new();
         src_file.read_to_string(&mut original_contents).unwrap();
-        decrypted_file.read_to_string(&mut decrypted_contents).unwrap();
+        decrypted_file
+            .read_to_string(&mut decrypted_contents)
+            .unwrap();
 
         assert_eq!(original_contents.trim(), decrypted_contents.trim());
     }
@@ -227,13 +334,15 @@ mod tests {
             &aes_nonce,
             &BUFFER_LEN,
             None,
-            None);
+            None,
+        );
         assert!(result.is_err());
     }
 
     #[test]
     fn test_decrypting_an_empty_file_fails() {
-        let key = create_key_from_password(b"isn't she lovelyyyy", b"isn't-she-wonderfulll").unwrap();
+        let key =
+            create_key_from_password(b"isn't she lovelyyyy", b"isn't-she-wonderfulll").unwrap();
         let mut aes_nonce = AES256GCMNonce::default();
         OsRng.fill_bytes(&mut aes_nonce);
 
@@ -248,7 +357,47 @@ mod tests {
             &aes_nonce,
             &BUFFER_LEN,
             None,
-            None);
+            None,
+        );
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_creating_filename_metadata_item_creates_correct_metadata() {
+        const FILENAME: &str = "test-source-file.txt";
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join(FILENAME);
+        let file = fs::File::create(file_path).unwrap();
+
+        let res = create_filename_metadata_item(&file);
+        assert!(res.is_ok());
+
+        let metadata = res.unwrap();
+
+        assert_eq!(metadata[0..2], [0x00, 0x01]);
+
+        let mut stored_length: u16 = metadata[2] as u16;
+        stored_length = stored_length | (metadata[3] as u16) << 8u16;
+
+        assert_eq!(FILENAME.len() as u16, stored_length);
+    }
+
+    #[test]
+    fn test_creating_salt_metadata_item_succeeds() {
+        let salt = b"you-cant-hurry-love";
+        let metadata = create_salt_metadata_item(salt);
+        assert_eq!(metadata[0..2], [0xA5, 0x19]);
+        assert_eq!(metadata[2..metadata.len()], salt[0..19]);
+    }
+
+    #[test]
+    fn test_creating_nonce_metadata_item_succeeds() {
+        let mut nonce = AES256GCMNonce::default();
+        OsRng.fill_bytes(&mut nonce);
+
+        let metadata = create_nonce_metadata_item(&nonce);
+
+        assert_eq!(metadata[0..2], [0x90, 0x9C]);
+        assert_eq!(metadata[2..metadata.len()], nonce);
     }
 }
