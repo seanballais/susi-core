@@ -43,26 +43,6 @@ pub fn encrypt_to_ssef_file(
 
     let key = create_key_from_password(password, salt)?;
 
-    // File identifier = first two bytes (big-endian)
-    // Format version = last two bytes (little-endian)
-    let header: [u8; 4] = [0x55, 0x3F, 0x01, 0x00];
-
-    let filename_metadata = create_filename_metadata_item(src_file)?;
-    let salt_metadata = create_salt_metadata_item(salt);
-    let nonce_metadata = create_nonce_metadata_item(nonce);
-    let metadata_length = filename_metadata.len() + salt_metadata.len() + nonce_metadata.len();
-
-    // Plus two for metadata length
-    let mut metadata: Vec<u8> = Vec::with_capacity(metadata_length + 2);
-    metadata.push((metadata_length & 0xFF) as u8);
-    metadata.push((metadata_length >> 8 & 0xFF) as u8);
-    metadata.extend(filename_metadata.iter());
-    metadata.extend(salt_metadata.iter());
-    metadata.extend(nonce_metadata.iter());
-
-    dest_file.write_all(header.as_slice())?;
-    dest_file.write_all(metadata.as_slice())?;
-
     encrypt_file(
         src_file,
         dest_file,
@@ -179,13 +159,37 @@ pub fn decrypt_file(
     Ok(())
 }
 
+fn create_metadata_section_for_encrypted_file(
+    src_file: &File,
+    salt: &[u8],
+    nonce: &AES256GCMNonce
+) -> Result<Vec<u8>> {
+    // File identifier = first two bytes (big-endian)
+    // Format version = last two bytes (little-endian)
+    let header: Vec<u8> = vec![0x55, 0x3F, 0x01, 0x00];
+
+    let filename_metadata = create_filename_metadata_item(src_file)?;
+    let salt_metadata = create_salt_metadata_item(salt);
+    let nonce_metadata = create_nonce_metadata_item(nonce);
+    let metadata_length = filename_metadata.len() + salt_metadata.len() + nonce_metadata.len();
+
+    // Plus six to include header and metadata length
+    let mut metadata_section: Vec<u8> = Vec::with_capacity(metadata_length + 6);
+    metadata_section.extend(header.iter());
+    metadata_section.push((metadata_length & 0xFF) as u8);
+    metadata_section.push((metadata_length >> 8 & 0xFF) as u8);
+    metadata_section.extend(filename_metadata.iter());
+    metadata_section.extend(salt_metadata.iter());
+    metadata_section.extend(nonce_metadata.iter());
+
+    Ok(metadata_section)
+}
+
 fn create_filename_metadata_item(src_file: &File) -> Result<Vec<u8>> {
     // Note: No needed to check if the file name is too long, since the chances of it happening is
     //       low and we will get an error beforehand if the file name is too long.
     let filepath = filename::file_name(src_file)?;
-    let src_file_name = filepath
-        .file_name()
-        .unwrap_or_else(|| OsStr::new(""));
+    let src_file_name = filepath.file_name().unwrap_or_else(|| OsStr::new(""));
 
     let filename_length = src_file_name.len();
     let mut metadata_filename: Vec<u8> = Vec::with_capacity(4 + filename_length);
@@ -207,6 +211,13 @@ fn create_salt_metadata_item(salt: &[u8]) -> Vec<u8> {
     let mut salt_metadata: Vec<u8> = Vec::with_capacity(4 + salt.len());
     salt_metadata.push(0xA5);
     salt_metadata.push(0x19);
+
+    // Get the first byte of the length.
+    salt_metadata.push((salt.len() & 0xFF) as u8);
+
+    // Get the second byte of the length.
+    salt_metadata.push((salt.len() >> 8 & 0xFF) as u8);
+
     salt_metadata.extend_from_slice(salt);
 
     salt_metadata
@@ -216,6 +227,13 @@ fn create_nonce_metadata_item(nonce: &AES256GCMNonce) -> Vec<u8> {
     let mut nonce_metadata: Vec<u8> = Vec::with_capacity(4 + nonce.len());
     nonce_metadata.push(0x90);
     nonce_metadata.push(0x9C);
+
+    // Get the first byte of the length.
+    nonce_metadata.push((nonce.len() & 0xFF) as u8);
+
+    // Get the second byte of the length.
+    nonce_metadata.push((nonce.len() >> 8 & 0xFF) as u8);
+
     nonce_metadata.extend_from_slice(nonce.as_slice());
 
     nonce_metadata
@@ -363,6 +381,96 @@ mod tests {
     }
 
     #[test]
+    fn test_creating_metadata_section_encrypted_file_succeeds() {
+        const SRC_FILENAME: &str = "test-source-file.txt";
+        let dir = tempfile::tempdir().unwrap();
+
+        let src_file_path = dir.path().join(SRC_FILENAME);
+        let src_file = fs::File::create(src_file_path).unwrap();
+
+        let salt = b"you-cant-hurry-love";
+
+        let mut nonce = AES256GCMNonce::default();
+        OsRng.fill_bytes(&mut nonce);
+
+        let res = create_metadata_section_for_encrypted_file(&src_file, salt, &nonce);
+        assert!(res.is_ok());
+
+        let section = res.unwrap();
+
+        let file_header_start = 0;
+        let file_header_end = file_header_start + 4;
+        let file_header_indices = file_header_start..file_header_end;
+
+        let metadata_len_start = file_header_end;
+        let metadata_len_end = metadata_len_start + 2;
+        let metadata_len_indices = metadata_len_start..metadata_len_end;
+
+        // Four bytes used for file identifier and format version. Another two bytes for the bytes
+        // specifying the metadata section length.
+        let metadata_length = section.len() - 6;
+        let metadata_length_bytes = [metadata_length as u8, (metadata_length >> 8 & 0xFF) as u8];
+
+        let filename_key_start = metadata_len_end;
+        let filename_key_end = filename_key_start + 2;
+        let filename_key_indices = filename_key_start..filename_key_end;
+
+        let filename_len_start = filename_key_end;
+        let filename_len_end = filename_len_start + 2;
+        let filename_len_indices = filename_len_start..filename_len_end;
+
+        let filename_len_bytes = [SRC_FILENAME.len() as u8, (SRC_FILENAME.len() >> 8 & 0xFF) as u8];
+
+        let filename_val_start = filename_len_end;
+        let filename_val_end = filename_val_start + SRC_FILENAME.len();
+        let filename_val_indices = filename_val_start..filename_val_end;
+
+        let salt_key_start = filename_val_end;
+        let salt_key_end = salt_key_start + 2;
+        let salt_key_indices = salt_key_start..salt_key_end;
+
+        let salt_len_start = salt_key_end;
+        let salt_len_end = salt_len_start + 2;
+        let salt_len_indices = salt_len_start..salt_len_end;
+
+        let salt_len_bytes = [salt.len() as u8, (salt.len() >> 8 & 0xFF) as u8];
+
+        let salt_val_start = salt_len_end;
+        let salt_val_end = salt_val_start + salt.len();
+        let salt_val_indices = salt_val_start..salt_val_end;
+
+        let nonce_key_start = salt_val_end;
+        let nonce_key_end = nonce_key_start + 2;
+        let nonce_key_indices = nonce_key_start..nonce_key_end;
+
+        let nonce_len_start = nonce_key_end;
+        let nonce_len_end = nonce_len_start + 2;
+        let nonce_len_indices = nonce_len_start..nonce_len_end;
+
+        let nonce_len_bytes = [nonce.len() as u8, (nonce.len() >> 8 & 0xFF) as u8];
+
+        let nonce_val_start = nonce_len_end;
+        let nonce_val_end = nonce_val_start + nonce.len();
+        let nonce_val_indices = nonce_val_start..nonce_val_end;
+
+        assert_eq!(section[file_header_indices], [0x55, 0x3F, 0x01, 0x00]);
+
+        assert_eq!(section[metadata_len_indices], metadata_length_bytes[0..2]);
+
+        assert_eq!(section[filename_key_indices], [0x00, 0x01]);
+        assert_eq!(section[filename_len_indices], filename_len_bytes[0..2]);
+        assert_eq!(section[filename_val_indices], SRC_FILENAME.as_bytes()[0..SRC_FILENAME.len()]);
+
+        assert_eq!(section[salt_key_indices], [0xA5, 0x19]);
+        assert_eq!(section[salt_len_indices], salt_len_bytes[0..2]);
+        assert_eq!(section[salt_val_indices], salt[0..salt.len()]);
+
+        assert_eq!(section[nonce_key_indices], [0x90, 0x9C]);
+        assert_eq!(section[nonce_len_indices], nonce_len_bytes[0..2]);
+        assert_eq!(section[nonce_val_indices], nonce[0..nonce.len()]);
+    }
+
+    #[test]
     fn test_creating_filename_metadata_item_creates_correct_metadata() {
         const FILENAME: &str = "test-source-file.txt";
         let dir = tempfile::tempdir().unwrap();
@@ -373,21 +481,21 @@ mod tests {
         assert!(res.is_ok());
 
         let metadata = res.unwrap();
+        let len_bytes = [FILENAME.len() as u8, (FILENAME.len() >> 8 & 0xFF) as u8];
 
         assert_eq!(metadata[0..2], [0x00, 0x01]);
-
-        let mut stored_length: u16 = metadata[2] as u16;
-        stored_length = stored_length | (metadata[3] as u16) << 8u16;
-
-        assert_eq!(FILENAME.len() as u16, stored_length);
+        assert_eq!(metadata[2..4], len_bytes[0..len_bytes.len()]);
+        assert_eq!(metadata[4..FILENAME.len() + 4], FILENAME.as_bytes()[0..FILENAME.len()]);
     }
 
     #[test]
     fn test_creating_salt_metadata_item_succeeds() {
         let salt = b"you-cant-hurry-love";
         let metadata = create_salt_metadata_item(salt);
+        let len_bytes = [salt.len() as u8, (salt.len() >> 8 & 0xFF) as u8];
         assert_eq!(metadata[0..2], [0xA5, 0x19]);
-        assert_eq!(metadata[2..metadata.len()], salt[0..19]);
+        assert_eq!(metadata[2..4], len_bytes);
+        assert_eq!(metadata[4..salt.len() + 4], salt[0..salt.len()]);
     }
 
     #[test]
@@ -396,8 +504,10 @@ mod tests {
         OsRng.fill_bytes(&mut nonce);
 
         let metadata = create_nonce_metadata_item(&nonce);
+        let len_bytes = [nonce.len() as u8, (nonce.len() >> 8 & 0xFF) as u8];
 
         assert_eq!(metadata[0..2], [0x90, 0x9C]);
-        assert_eq!(metadata[2..metadata.len()], nonce);
+        assert_eq!(metadata[2..4], len_bytes);
+        assert_eq!(metadata[4..nonce.len() + 4], nonce);
     }
 }
