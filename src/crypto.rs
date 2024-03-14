@@ -2,7 +2,7 @@ use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::sync::{Arc, atomic};
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicBool, AtomicUsize};
 
 use aead;
 use aead::KeyInit;
@@ -44,6 +44,7 @@ pub fn encrypt_to_ssef_file(
     buffer_len: &usize,
     num_read_bytes: Option<&mut AtomicUsize>,
     num_written_bytes: Option<&mut AtomicUsize>,
+    should_stop: Option<&mut AtomicBool>
 ) -> Result<()> {
     // Let's just rewind the files back to make sure.
     src_file.rewind()?;
@@ -62,6 +63,7 @@ pub fn encrypt_to_ssef_file(
         &buffer_len,
         num_read_bytes,
         num_written_bytes,
+        should_stop
     )?;
 
     Ok(())
@@ -74,6 +76,7 @@ pub fn decrypt_from_ssef_file(
     buffer_len: &usize,
     num_read_bytes: Option<&mut AtomicUsize>,
     num_written_bytes: Option<&mut AtomicUsize>,
+    should_stop: Option<&mut AtomicBool>
 ) -> Result<()> {
     // Let's just rewind the files back to make sure.
     src_file.rewind()?;
@@ -87,7 +90,16 @@ pub fn decrypt_from_ssef_file(
     let key = create_key_from_password(password, metadata.salt.as_slice())?;
     let nonce: AES256GCMNonce = metadata.nonce.into();
 
-    decrypt_file(src_file, dest_file, &key, &nonce, buffer_len, num_read_bytes, num_written_bytes)?;
+    decrypt_file(
+        src_file,
+        dest_file,
+        &key,
+        &nonce,
+        buffer_len,
+        num_read_bytes,
+        num_written_bytes,
+        should_stop
+    )?;
 
     Ok(())
 }
@@ -113,6 +125,7 @@ fn encrypt_file(
     buffer_len: &usize,
     num_read_bytes: Option<&mut AtomicUsize>,
     num_written_bytes: Option<&mut AtomicUsize>,
+    should_stop: Option<&mut AtomicBool>
 ) -> Result<()> {
     let aead = aes_gcm::Aes256Gcm::new(key.as_ref().into());
     let mut stream_encryptor = aead::stream::EncryptorBE32::from_aead(aead, nonce.as_ref().into());
@@ -123,6 +136,12 @@ fn encrypt_file(
     let dest_file_name = filename::file_name(dest_file).unwrap_or_default();
 
     loop {
+        if let Some(ref should_stop) = should_stop {
+            if should_stop.load(atomic::Ordering::Relaxed) {
+                return Err(Error::TaskTerminatedError);
+            }
+        }
+
         let read_count = src_file
             .read(&mut buffer)
             .map_err(|e| Error::IOError(src_file_name.clone(), Arc::from(e)))?;
@@ -168,6 +187,7 @@ fn decrypt_file(
     buffer_len: &usize,
     num_read_bytes: Option<&mut AtomicUsize>,
     num_written_bytes: Option<&mut AtomicUsize>,
+    should_stop: Option<&mut AtomicBool>
 ) -> Result<()> {
     let aead = aes_gcm::Aes256Gcm::new(key.as_ref().into());
     let mut stream_decryptor = aead::stream::DecryptorBE32::from_aead(aead, nonce.as_ref().into());
@@ -178,6 +198,12 @@ fn decrypt_file(
     let dest_file_name = filename::file_name(dest_file).unwrap_or_default();
 
     loop {
+        if let Some(ref should_stop) = should_stop {
+            if should_stop.load(atomic::Ordering::Relaxed) {
+                return Err(Error::TaskTerminatedError);
+            }
+        }
+
         let read_count = src_file
             .read(&mut buffer)
             .map_err(|e| Error::IOError(src_file_name.clone(), Arc::from(e)))?;
@@ -422,6 +448,7 @@ mod tests {
             &nonce,
             &BUFFER_LEN,
             None,
+            None,
             None
         );
         assert!(encryption_result.is_ok());
@@ -434,6 +461,7 @@ mod tests {
             &mut decrypted_file,
             password,
             &BUFFER_LEN,
+            None,
             None,
             None
         );
@@ -508,6 +536,7 @@ mod tests {
             &BUFFER_LEN,
             None,
             None,
+            None
         );
         assert!(encryption_result.is_ok());
 
@@ -522,6 +551,7 @@ mod tests {
             &BUFFER_LEN,
             None,
             None,
+            None
         );
         assert!(decryption_result.is_ok());
 
@@ -557,6 +587,7 @@ mod tests {
             &BUFFER_LEN,
             None,
             None,
+            None
         );
         assert!(result.is_ok());
     }
@@ -580,6 +611,7 @@ mod tests {
             &BUFFER_LEN,
             None,
             None,
+            None
         );
         assert!(result.is_err());
         assert!(matches!(result, Err(Error::InvalidSSEFFile)));
@@ -799,6 +831,7 @@ mod tests {
             &BUFFER_LEN,
             None,
             None,
+            None
         );
         assert!(encryption_result.is_ok());
 

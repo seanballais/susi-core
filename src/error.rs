@@ -15,6 +15,7 @@ pub enum Error {
     InvalidPasswordLengthError,
     InvalidSSEFFile,
     InvalidSSEFFileIdentifierError,
+    TaskTerminatedError,
     UnsupportedSSEFFormatVersionError,
     AEADError(aead::Error),
     Argon2Error(argon2::Error),
@@ -37,6 +38,7 @@ impl Display for Error {
             }
             Self::InvalidSSEFFile => write!(f, "Invalid SSEF file"),
             Self::InvalidSSEFFileIdentifierError => write!(f, "Wrong file identifier"),
+            Self::TaskTerminatedError => write!(f, "Task was stopped midway"),
             Self::UnsupportedSSEFFormatVersionError => write!(f, "Format version is not supported"),
             Self::AEADError(e) => write!(f, "Error while using AEAD functions: {}", e),
             Self::Argon2Error(e) => write!(f, "Error while using Argon2 functions: {}", e),
