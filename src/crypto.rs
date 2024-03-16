@@ -1,8 +1,8 @@
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::sync::{Arc, atomic};
 use std::sync::atomic::{AtomicBool, AtomicUsize};
+use std::sync::{atomic, Arc};
 
 use aead;
 use aead::KeyInit;
@@ -44,7 +44,7 @@ pub fn encrypt_to_ssef_file(
     buffer_len: &usize,
     num_read_bytes: Option<&mut AtomicUsize>,
     num_written_bytes: Option<&mut AtomicUsize>,
-    should_stop: Option<&mut AtomicBool>
+    should_stop: Option<&mut AtomicBool>,
 ) -> Result<()> {
     // Let's just rewind the files back to make sure.
     src_file.rewind()?;
@@ -63,7 +63,7 @@ pub fn encrypt_to_ssef_file(
         &buffer_len,
         num_read_bytes,
         num_written_bytes,
-        should_stop
+        should_stop,
     )?;
 
     Ok(())
@@ -76,7 +76,7 @@ pub fn decrypt_from_ssef_file(
     buffer_len: &usize,
     num_read_bytes: Option<&mut AtomicUsize>,
     num_written_bytes: Option<&mut AtomicUsize>,
-    should_stop: Option<&mut AtomicBool>
+    should_stop: Option<&mut AtomicBool>,
 ) -> Result<()> {
     // Let's just rewind the files back to make sure.
     src_file.rewind()?;
@@ -98,7 +98,7 @@ pub fn decrypt_from_ssef_file(
         buffer_len,
         num_read_bytes,
         num_written_bytes,
-        should_stop
+        should_stop,
     )?;
 
     Ok(())
@@ -125,7 +125,7 @@ fn encrypt_file(
     buffer_len: &usize,
     num_read_bytes: Option<&mut AtomicUsize>,
     num_written_bytes: Option<&mut AtomicUsize>,
-    should_stop: Option<&mut AtomicBool>
+    should_stop: Option<&mut AtomicBool>,
 ) -> Result<()> {
     let aead = aes_gcm::Aes256Gcm::new(key.as_ref().into());
     let mut stream_encryptor = aead::stream::EncryptorBE32::from_aead(aead, nonce.as_ref().into());
@@ -187,7 +187,7 @@ fn decrypt_file(
     buffer_len: &usize,
     num_read_bytes: Option<&mut AtomicUsize>,
     num_written_bytes: Option<&mut AtomicUsize>,
-    should_stop: Option<&mut AtomicBool>
+    should_stop: Option<&mut AtomicBool>,
 ) -> Result<()> {
     let aead = aes_gcm::Aes256Gcm::new(key.as_ref().into());
     let mut stream_decryptor = aead::stream::DecryptorBE32::from_aead(aead, nonce.as_ref().into());
@@ -379,7 +379,9 @@ pub fn get_metadata_section_from_ssef_file(src_file: &mut File) -> Result<SSEFMe
                 salt = Vec::from(value);
             }
             [0x90, 0x9C] => {
-                nonce = value.try_into().map_err(|_| Error::InvalidNonceLengthError)?;
+                nonce = value
+                    .try_into()
+                    .map_err(|_| Error::InvalidNonceLengthError)?;
             }
             _ => {}
         }
@@ -413,7 +415,8 @@ mod tests {
             .create_new(true)
             .read(true)
             .write(true)
-            .open(src_file_path).unwrap();
+            .open(src_file_path)
+            .unwrap();
         let mut encrypted_file = tempfile().unwrap();
         let mut decrypted_file = tempfile().unwrap();
 
@@ -449,7 +452,7 @@ mod tests {
             &BUFFER_LEN,
             None,
             None,
-            None
+            None,
         );
         assert!(encryption_result.is_ok());
 
@@ -463,7 +466,7 @@ mod tests {
             &BUFFER_LEN,
             None,
             None,
-            None
+            None,
         );
         assert!(decryption_result.is_ok());
 
@@ -536,7 +539,7 @@ mod tests {
             &BUFFER_LEN,
             None,
             None,
-            None
+            None,
         );
         assert!(encryption_result.is_ok());
 
@@ -551,7 +554,7 @@ mod tests {
             &BUFFER_LEN,
             None,
             None,
-            None
+            None,
         );
         assert!(decryption_result.is_ok());
 
@@ -587,7 +590,7 @@ mod tests {
             &BUFFER_LEN,
             None,
             None,
-            None
+            None,
         );
         assert!(result.is_ok());
     }
@@ -611,7 +614,7 @@ mod tests {
             &BUFFER_LEN,
             None,
             None,
-            None
+            None,
         );
         assert!(result.is_err());
         assert!(matches!(result, Err(Error::InvalidSSEFFile)));
@@ -806,7 +809,8 @@ mod tests {
             .create_new(true)
             .read(true)
             .write(true)
-            .open(file_path).unwrap();
+            .open(file_path)
+            .unwrap();
         let contents = b"tale as old as time, true as it can be";
         src_file.write_all(contents).unwrap();
 
@@ -831,7 +835,7 @@ mod tests {
             &BUFFER_LEN,
             None,
             None,
-            None
+            None,
         );
         assert!(encryption_result.is_ok());
 
