@@ -1,5 +1,5 @@
-use std::{env, fs};
 use std::path::PathBuf;
+use std::{env, fs};
 use tracing_appender;
 use tracing_subscriber::prelude::*;
 
@@ -17,7 +17,9 @@ pub fn setup_logging() -> Result<Vec<tracing_appender::non_blocking::WorkerGuard
     print!("Setting up loggers... ");
     let file_appender = tracing_appender::rolling::never(log_dir, "core.log");
     let (file_logger, file_logger_guard) = tracing_appender::non_blocking(file_appender);
-    let file_logger_layer = tracing_subscriber::fmt::layer().with_writer(file_logger).with_ansi(false);
+    let file_logger_layer = tracing_subscriber::fmt::layer()
+        .with_writer(file_logger)
+        .with_ansi(false);
 
     let (stdout_logger, stdout_logger_guard) = tracing_appender::non_blocking(std::io::stdout());
     let stdout_logger_layer = tracing_subscriber::fmt::layer().with_writer(stdout_logger);

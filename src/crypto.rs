@@ -1,6 +1,7 @@
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::sync::{atomic, Arc};
 
@@ -10,6 +11,7 @@ use aes_gcm;
 use argon2;
 use argon2::Algorithm::Argon2id;
 use filename;
+use tracing;
 
 use crate::error::Error;
 use crate::error::Result;
@@ -46,14 +48,46 @@ pub fn encrypt_to_ssef_file(
     num_written_bytes: Option<&mut AtomicUsize>,
     should_stop: Option<&mut AtomicBool>,
 ) -> Result<()> {
+    let span = tracing::span!(tracing::Level::INFO, "encrypt_to_ssef_file");
+    let _enter = span.enter();
+
+    let src_file_name = filename::file_name(src_file).unwrap_or_else(|e| {
+        tracing::warn!(
+            "Unable to get the file name for a source file. Error: {}",
+            e.to_string()
+        );
+
+        PathBuf::new()
+    });
+    let dest_file_name = filename::file_name(dest_file).unwrap_or_else(|e| {
+        tracing::warn!(
+            "Unable to get the file name for a destination file. Error: {}",
+            e.to_string()
+        );
+
+        PathBuf::new()
+    });
+
+    tracing::info!(
+        "Encrypting file, {}, to {}",
+        src_file_name.display(),
+        dest_file_name.display()
+    );
+
     // Let's just rewind the files back to make sure.
-    src_file.rewind()?;
-    dest_file.rewind()?;
+    src_file
+        .rewind()
+        .map_err(|e| Error::IOError(src_file_name.clone(), Arc::from(e)))?;
+    dest_file
+        .rewind()
+        .map_err(|e| Error::IOError(dest_file_name.clone(), Arc::from(e)))?;
 
     let key = create_key_from_password(password, salt)?;
     let header = create_metadata_section_for_encrypted_file(src_file, salt, nonce)?;
 
-    dest_file.write_all(header.as_slice())?;
+    dest_file
+        .write_all(header.as_slice())
+        .map_err(|e| Error::IOError(dest_file_name.clone(), Arc::from(e)))?;
 
     encrypt_file(
         src_file,
@@ -78,9 +112,39 @@ pub fn decrypt_from_ssef_file(
     num_written_bytes: Option<&mut AtomicUsize>,
     should_stop: Option<&mut AtomicBool>,
 ) -> Result<()> {
+    let span = tracing::span!(tracing::Level::INFO, "decrypt_to_ssef_file");
+    let _enter = span.enter();
+
+    let src_file_name = filename::file_name(src_file).unwrap_or_else(|e| {
+        tracing::warn!(
+            "Unable to get the file name for a source file. Error: {}",
+            e.to_string()
+        );
+
+        PathBuf::new()
+    });
+    let dest_file_name = filename::file_name(dest_file).unwrap_or_else(|e| {
+        tracing::warn!(
+            "Unable to get the file name for a destination file. Error: {}",
+            e.to_string()
+        );
+
+        PathBuf::new()
+    });
+
+    tracing::info!(
+        "Decrypting file, {}, to {}",
+        src_file_name.display(),
+        dest_file_name.display()
+    );
+
     // Let's just rewind the files back to make sure.
-    src_file.rewind()?;
-    dest_file.rewind()?;
+    src_file
+        .rewind()
+        .map_err(|e| Error::IOError(src_file_name.clone(), Arc::from(e)))?;
+    dest_file
+        .rewind()
+        .map_err(|e| Error::IOError(dest_file_name.clone(), Arc::new(e)))?;
 
     validate_ssef_file_identifier(src_file)?;
     validate_ssef_file_format_version(src_file)?;
@@ -105,6 +169,11 @@ pub fn decrypt_from_ssef_file(
 }
 
 pub fn create_key_from_password(password: &[u8], salt: &[u8]) -> Result<SusiKey> {
+    let span = tracing::span!(tracing::Level::INFO, "create_key_from_password");
+    let _enter = span.enter();
+
+    tracing::info!("Creating key from password and salt");
+
     if password.len() < 12 {
         return Err(Error::InvalidPasswordLengthError);
     }
@@ -127,13 +196,36 @@ fn encrypt_file(
     num_written_bytes: Option<&mut AtomicUsize>,
     should_stop: Option<&mut AtomicBool>,
 ) -> Result<()> {
+    let span = tracing::span!(tracing::Level::INFO, "encrypt_file");
+    let _enter = span.enter();
+
     let aead = aes_gcm::Aes256Gcm::new(key.as_ref().into());
     let mut stream_encryptor = aead::stream::EncryptorBE32::from_aead(aead, nonce.as_ref().into());
 
     let mut buffer = vec![0u8; *buffer_len];
 
-    let src_file_name = filename::file_name(src_file).unwrap_or_default();
-    let dest_file_name = filename::file_name(dest_file).unwrap_or_default();
+    let src_file_name = filename::file_name(src_file).unwrap_or_else(|e| {
+        tracing::warn!(
+            "Unable to get the file name for a source file. Error: {}",
+            e.to_string()
+        );
+
+        PathBuf::new()
+    });
+    let dest_file_name = filename::file_name(dest_file).unwrap_or_else(|e| {
+        tracing::warn!(
+            "Unable to get the file name for a destination file. Error: {}",
+            e.to_string()
+        );
+
+        PathBuf::new()
+    });
+
+    tracing::info!(
+        "Encrypting data from {} to {}",
+        src_file_name.display(),
+        dest_file_name.display()
+    );
 
     loop {
         if let Some(ref should_stop) = should_stop {
@@ -189,13 +281,36 @@ fn decrypt_file(
     num_written_bytes: Option<&mut AtomicUsize>,
     should_stop: Option<&mut AtomicBool>,
 ) -> Result<()> {
+    let span = tracing::span!(tracing::Level::INFO, "decrypt_file");
+    let _enter = span.enter();
+
     let aead = aes_gcm::Aes256Gcm::new(key.as_ref().into());
     let mut stream_decryptor = aead::stream::DecryptorBE32::from_aead(aead, nonce.as_ref().into());
 
     let mut buffer = vec![0u8; *buffer_len];
 
-    let src_file_name = filename::file_name(src_file).unwrap_or_default();
-    let dest_file_name = filename::file_name(dest_file).unwrap_or_default();
+    let src_file_name = filename::file_name(src_file).unwrap_or_else(|e| {
+        tracing::warn!(
+            "Unable to get the file name for a source file. Error: {}",
+            e.to_string()
+        );
+
+        PathBuf::new()
+    });
+    let dest_file_name = filename::file_name(dest_file).unwrap_or_else(|e| {
+        tracing::warn!(
+            "Unable to get the file name for a destination file. Error: {}",
+            e.to_string()
+        );
+
+        PathBuf::new()
+    });
+
+    tracing::info!(
+        "Decrypting data from {} to {}",
+        src_file_name.display(),
+        dest_file_name.display()
+    );
 
     loop {
         if let Some(ref should_stop) = should_stop {
@@ -268,7 +383,7 @@ fn create_metadata_section_for_encrypted_file(
 
 fn create_filename_metadata_item(src_file: &File) -> Result<Vec<u8>> {
     // Note: No needed to check if the file name is too long, since the chances of it happening is
-    //       low, and we will get an error beforehand if the file name is too long.
+    //       low, and we will get an error outside of the app if the file name is too long.
     let filepath = filename::file_name(src_file)?;
     let src_file_name = filepath.file_name().unwrap_or_else(|| OsStr::new(""));
 

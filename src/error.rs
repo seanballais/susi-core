@@ -47,11 +47,11 @@ impl Display for Error {
             Self::AEADError(e) => write!(f, "Error while using AEAD functions: {}", e),
             Self::Argon2Error(e) => write!(f, "Error while using Argon2 functions: {}", e),
             Self::FromUTF8Error(e) => write!(f, "Error while create string from bytes: {}", e),
-            Self::IOError(p, e) => write!(
+            Self::IOError(filename, e) => write!(
                 f,
                 "Error performing I/O operations on {}: {}",
-                p.display(),
-                e
+                filename.display(),
+                e.to_string()
             ),
         }
     }

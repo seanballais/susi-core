@@ -1,5 +1,5 @@
-use tracing_appender::non_blocking::WorkerGuard;
 use susi_core::logging;
+use tracing_appender::non_blocking::WorkerGuard;
 
 fn main() {
     let log_setup_res = logging::setup_logging();
@@ -7,7 +7,7 @@ fn main() {
     match log_setup_res {
         Ok(guards) => {
             log_guards = guards;
-        },
+        }
         Err(e) => {
             eprintln!(
                 "Error occurred, but we'll still continue, but with no logging. Error: {}",
