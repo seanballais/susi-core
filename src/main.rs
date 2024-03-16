@@ -1,4 +1,5 @@
 use std::io;
+use std::io::{BufRead, Read};
 
 use interprocess::local_socket::{LocalSocketListener, LocalSocketStream, NameTypeSupport};
 use tracing;
@@ -49,4 +50,47 @@ fn main() {
     let listener = binding_result.unwrap();
 
     tracing::info!("Starting IPC server");
+
+    const BUFFER_SIZE: usize = 1024;
+    let mut buffer = vec![0u8; BUFFER_SIZE];
+    let mut read_bytes: Vec<u8> = Vec::with_capacity(BUFFER_SIZE); // Size seems okay for now.
+
+    for connection in listener.incoming().filter_map(handle_listener_error) {
+        let mut conn = io::BufReader::new(connection);
+        tracing::info!("New connection received");
+
+        read_bytes.clear(); // Ready this one for buffering.
+
+        loop {
+            let mut read_count = 0usize;
+            let read_result = conn.read(&mut buffer);
+            match read_result {
+                Ok(c) => { read_count = c; },
+                Err(e) => {
+                    if e.kind() == io::ErrorKind::Interrupted {
+                        tracing::warn!("Reading from connection got interrupted. Retrying");
+                        continue;
+                    } else {
+                        tracing::error!("Error occurred while reading from connection. Aborting");
+                        break;
+                    }
+                }
+            }
+
+            read_bytes.extend_from_slice(&buffer[0..read_count]);
+
+            // Nothing more to read.
+            if read_count == 0 {
+                break;
+            }
+        }
+
+        if !read_bytes.is_empty() {
+            println!("{}", String::from_utf8_lossy(&read_bytes));
+        }
+    }
+}
+
+fn handle_listener_error(connection: io::Result<LocalSocketStream>) -> Option<LocalSocketStream> {
+    connection.ok()
 }
