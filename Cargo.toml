@@ -9,8 +9,10 @@ aead = "0.5.2"
 aes-gcm = { version = "0.10.3", features = ["stream"] }
 argon2 = { version = "0.5.3", features = ["std"] }
 filename = { git = "https://github.com/seanballais/rust-filename.git" }
+interprocess = "1.2.1"
 rand = "0.8.5"
 tempfile = "3.10.1"
 tracing = "0.1.40"
 tracing-appender = "0.2.3"
+tracing-panic = "0.1.1"
 tracing-subscriber = "0.3.18"
