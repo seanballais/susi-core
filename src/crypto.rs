@@ -16,6 +16,8 @@ use tracing;
 use crate::error::Error;
 use crate::error::Result;
 
+pub const SALT_LENGTH: usize = 32;
+
 pub const IO_BUFFER_LEN: usize = 1_048_576; // Equals to 1 MiB.
 
 // Remember that each metadata value only has a max length of 65,535 bytes, since we assign

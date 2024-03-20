@@ -4,12 +4,15 @@ name = "susi-core"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "susi"
+crate-type = ["cdylib"]
+
 [dependencies]
 aead = "0.5.2"
 aes-gcm = { version = "0.10.3", features = ["stream"] }
 argon2 = { version = "0.5.3", features = ["std"] }
 filename = { git = "https://github.com/seanballais/rust-filename.git" }
-interprocess = "1.2.1"
 rand = "0.8.5"
 tempfile = "3.10.1"
 tracing = "0.1.40"
