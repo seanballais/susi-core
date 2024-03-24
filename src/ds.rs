@@ -12,14 +12,14 @@ pub trait Queue<T> {
 
 pub struct FIFOQueue<T> {
     data: Mutex<VecDeque<T>>,
-    cond_var: Condvar
+    cond_var: Condvar,
 }
 
 impl<T> Queue<T> for FIFOQueue<T> {
     fn new() -> Self {
         Self {
             data: Mutex::new(VecDeque::new()),
-            cond_var: Condvar::new()
+            cond_var: Condvar::new(),
         }
     }
 
@@ -56,10 +56,12 @@ impl<T> Queue<T> for FIFOQueue<T> {
     }
 }
 
+unsafe impl<T> Sync for FIFOQueue<T> {}
+
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use super::*;
+    use std::sync::Arc;
 
     #[test]
     fn test_using_fifo_queue_works_properly() {

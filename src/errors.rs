@@ -27,7 +27,17 @@ pub enum Error {
 
 pub type Result<T> = core::result::Result<T, Error>;
 
-impl error::Error for Error {}
+impl error::Error for Error {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        match self {
+            // NOTE: aead::Error does not implement std::error::Error.
+            Self::Argon2Error(e) => Some(e),
+            Self::FromUTF8Error(e) => Some(e),
+            Self::IOError(_, e) => Some(e),
+            _ => None
+        }
+    }
+}
 
 impl Display for Error {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::result::Result<(), fmt::Error> {

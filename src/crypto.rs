@@ -13,8 +13,8 @@ use argon2::Algorithm::Argon2id;
 use filename;
 use tracing;
 
-use crate::error::Error;
-use crate::error::Result;
+use crate::errors::Error;
+use crate::errors::Result;
 
 pub const SALT_LENGTH: usize = 32;
 

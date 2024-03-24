@@ -1,23 +1,16 @@
 use std::path::PathBuf;
-use std::{env, fs};
 use std::sync::OnceLock;
+use std::{env, fs};
 use tracing_appender;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::prelude::*;
 
-use crate::error::{Error, Result};
+use crate::errors::{Error, Result};
 use crate::logging;
-
 
 // We need these alive throughout the lifetime of the client program so that we can keep on logging.
 // We don't need to access this more than once, other than when deallocating this one.
 static LOGGING_GUARDS: OnceLock<Vec<WorkerGuard>> = OnceLock::new();
-
-#[no_mangle]
-pub extern "C" fn init_susi_core() {
-    init_logging();
-    init_panic_hooks();
-}
 
 pub fn setup_logging() -> Result<Vec<tracing_appender::non_blocking::WorkerGuard>> {
     println!("Getting the log directory path... ");
@@ -54,7 +47,7 @@ pub fn setup_logging() -> Result<Vec<tracing_appender::non_blocking::WorkerGuard
     Ok(vec![file_logger_guard, stdout_logger_guard])
 }
 
-fn init_logging() {
+pub fn init_logging() {
     if LOGGING_GUARDS.get().is_none() {
         tracing::warn!("There was an attempt to reinitialize to logging");
         return;
@@ -77,7 +70,7 @@ fn init_logging() {
     tracing::info!("Logging initialized");
 }
 
-fn init_panic_hooks() {
+pub(crate) fn init_panic_hooks() {
     let prev_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
         tracing_panic::panic_hook(panic_info);
