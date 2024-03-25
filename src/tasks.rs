@@ -19,39 +19,6 @@ pub type TaskFIFOQueue = FIFOQueue<TaskObject>;
 // affect performance.
 pub static TASK_QUEUE: Lazy<TaskFIFOQueue> = Lazy::new(|| { FIFOQueue::new() });
 
-#[cfg(test)]
-#[derive(Debug, PartialEq)]
-pub enum TestTaskType {
-    Encryption,
-    Decryption,
-}
-
-#[derive(Debug, Eq, Clone, Copy)]
-pub struct TaskID {
-    upper_id: u64,
-    lower_id: u64
-}
-
-impl TaskID {
-    pub fn new() -> Self {
-        //Uuid::new_v4().as_u128()
-        let (upper_id, lower_id) = Uuid::new_v4().as_u64_pair();
-        Self { upper_id, lower_id }
-    }
-}
-
-impl Display for TaskID {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}{}", self.upper_id, self.lower_id)
-    }
-}
-
-impl PartialEq for TaskID {
-    fn eq(&self, other: &Self) -> bool {
-        self.upper_id == other.upper_id && self.lower_id == other.lower_id
-    }
-}
-
 pub trait Task {
     fn run(
         &mut self,
@@ -65,6 +32,8 @@ pub trait Task {
     #[cfg(test)]
     fn get_task_type_for_test(&self) -> TestTaskType;
 }
+
+
 
 #[derive(Debug)]
 pub struct EncryptionTask {
@@ -170,6 +139,80 @@ impl Task for DecryptionTask {
     fn get_task_type_for_test(&self) -> TestTaskType {
         TestTaskType::Decryption
     }
+}
+
+#[derive(Debug, Eq, Clone, Copy)]
+pub struct TaskID {
+    upper_id: u64,
+    lower_id: u64
+}
+
+impl TaskID {
+    pub fn new() -> Self {
+        //Uuid::new_v4().as_u128()
+        let (upper_id, lower_id) = Uuid::new_v4().as_u64_pair();
+        Self { upper_id, lower_id }
+    }
+}
+
+impl Display for TaskID {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}{}", self.upper_id, self.lower_id)
+    }
+}
+
+impl PartialEq for TaskID {
+    fn eq(&self, other: &Self) -> bool {
+        self.upper_id == other.upper_id && self.lower_id == other.lower_id
+    }
+}
+
+#[derive(Debug)]
+pub struct TaskStatus {
+    task_id: TaskID,
+    num_read_bytes: AtomicUsize,
+    num_written_bytes: AtomicUsize,
+    should_stop: AtomicBool
+}
+
+impl TaskStatus {
+    pub fn new(task_id: TaskID) -> Self {
+        Self {
+            task_id,
+            num_read_bytes: AtomicUsize::new(0),
+            num_written_bytes: AtomicUsize::new(0),
+            should_stop: AtomicBool::new(false)
+        }
+    }
+
+    pub fn get_task_id(&self) -> TaskID {
+        self.task_id
+    }
+
+    pub fn get_num_read_bytes_mut_ref(&mut self) -> &mut AtomicUsize {
+        &mut self.num_read_bytes
+    }
+
+    pub fn get_num_written_bytes_mut_ref(&mut self) -> &mut AtomicUsize {
+        &mut self.num_written_bytes
+    }
+
+    pub fn get_should_stop_mut_ref(&mut self) -> &mut AtomicBool {
+        &mut self.should_stop
+    }
+
+    pub fn clear(&mut self) {
+        self.num_read_bytes.store(0, Ordering::Acquire);
+        self.num_written_bytes.store(0, Ordering::Relaxed);
+        self.should_stop.store(false, Ordering::Release);
+    }
+}
+
+#[cfg(test)]
+#[derive(Debug, PartialEq)]
+pub enum TestTaskType {
+    Encryption,
+    Decryption,
 }
 
 #[cfg(test)]
