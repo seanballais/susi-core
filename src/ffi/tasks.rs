@@ -111,7 +111,7 @@ mod tests {
         assert_eq!(TASK_QUEUE.len(), 1);
 
         let task = TASK_QUEUE.pop();
-        assert_eq!(task.get_task_id(), id);
+        assert_eq!(task.get_id(), id);
         assert_eq!(task.get_task_type_for_test(), TestTaskType::Encryption);
     }
 }

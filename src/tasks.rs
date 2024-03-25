@@ -1,5 +1,6 @@
+use std::fmt::{Display, Formatter};
 use std::fs::File;
-use std::sync::atomic::{AtomicBool, AtomicUsize};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use once_cell::sync::Lazy;
 
 use rand::{rngs::OsRng, RngCore};
@@ -39,6 +40,12 @@ impl TaskID {
     }
 }
 
+impl Display for TaskID {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}{}", self.upper_id, self.lower_id)
+    }
+}
+
 impl PartialEq for TaskID {
     fn eq(&self, other: &Self) -> bool {
         self.upper_id == other.upper_id && self.lower_id == other.lower_id
@@ -53,11 +60,10 @@ pub trait Task {
         should_stop: Option<&mut AtomicBool>,
     ) -> Result<()>;
 
-    #[cfg(test)]
-    fn get_task_type_for_test(&self) -> TestTaskType;
+    fn get_id(&self) -> TaskID;
 
     #[cfg(test)]
-    fn get_task_id(&self) -> TaskID;
+    fn get_task_type_for_test(&self) -> TestTaskType;
 }
 
 #[derive(Debug)]
@@ -111,13 +117,12 @@ impl Task for EncryptionTask {
         )
     }
 
+    fn get_id(&self) -> TaskID { self.id }
+
     #[cfg(test)]
     fn get_task_type_for_test(&self) -> TestTaskType {
         TestTaskType::Encryption
     }
-
-    #[cfg(test)]
-    fn get_task_id(&self) -> TaskID { self.id }
 }
 
 #[derive(Debug)]
@@ -159,13 +164,12 @@ impl Task for DecryptionTask {
         )
     }
 
+    fn get_id(&self) -> TaskID { self.id }
+
     #[cfg(test)]
     fn get_task_type_for_test(&self) -> TestTaskType {
         TestTaskType::Decryption
     }
-
-    #[cfg(test)]
-    fn get_task_id(&self) -> TaskID { self.id }
 }
 
 #[cfg(test)]

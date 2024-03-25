@@ -4,6 +4,7 @@ use std::sync::{Condvar, Mutex};
 // Based on: https://untitled.dev/thread-safe-queue-rust
 pub trait Queue<T> {
     fn new() -> Self;
+    fn with_capacity(size: usize) -> Self;
     fn push(&self, value: T);
     fn pop(&self) -> T;
     fn len(&self) -> usize;
@@ -19,6 +20,13 @@ impl<T> Queue<T> for FIFOQueue<T> {
     fn new() -> Self {
         Self {
             data: Mutex::new(VecDeque::new()),
+            cond_var: Condvar::new(),
+        }
+    }
+
+    fn with_capacity(size: usize) -> Self {
+        Self {
+            data: Mutex::new(VecDeque::with_capacity(size)),
             cond_var: Condvar::new(),
         }
     }
@@ -66,6 +74,43 @@ mod tests {
     #[test]
     fn test_using_fifo_queue_works_properly() {
         let queue = Arc::new(FIFOQueue::<i32>::new());
+
+        let q1 = queue.clone();
+        let t1 = std::thread::spawn(move || {
+            q1.push(1);
+            q1.push(2);
+        });
+
+        t1.join().unwrap();
+
+        assert_eq!(queue.len(), 2);
+        assert_eq!(queue.pop(), 1);
+        assert_eq!(queue.pop(), 2);
+        assert!(queue.is_empty());
+
+        let q2 = queue.clone();
+        let t2 = std::thread::spawn(move || {
+            q2.push(q2.pop()); // The pop should be blocked at this point since the queue is empty.
+            q2.push(3);
+        });
+
+        let q3 = queue.clone();
+        let t3 = std::thread::spawn(move || {
+            // After this one, t2 should be unblocked, and will then be able to push.
+            q3.push(4);
+        });
+
+        t2.join().unwrap();
+        t3.join().unwrap();
+
+        assert_eq!(queue.len(), 2);
+        assert_eq!(queue.pop(), 4);
+        assert_eq!(queue.pop(), 3);
+    }
+
+    #[test]
+    fn test_using_fifo_queue_with_set_capacity_works_properly() {
+        let queue = Arc::new(FIFOQueue::<i32>::with_capacity(3));
 
         let q1 = queue.clone();
         let t1 = std::thread::spawn(move || {
