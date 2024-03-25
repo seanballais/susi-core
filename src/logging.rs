@@ -70,7 +70,7 @@ pub fn init_logging() {
     tracing::info!("Logging initialized");
 }
 
-pub(crate) fn init_panic_hooks() {
+pub fn init_panic_hooks() {
     let prev_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
         tracing_panic::panic_hook(panic_info);

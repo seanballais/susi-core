@@ -11,6 +11,7 @@ use argon2;
 
 #[derive(Debug, Clone)]
 pub enum Error {
+    None, // Only use this as a default value.
     InvalidNonceLengthError,
     InvalidPasswordLengthError,
     InvalidSSEFFile,
@@ -42,6 +43,7 @@ impl error::Error for Error {
 impl Display for Error {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::result::Result<(), fmt::Error> {
         match self {
+            Self::None => write!(f, "No error"),
             Self::InvalidNonceLengthError => {
                 write!(f, "Nonce length is either too short or too long")
             }

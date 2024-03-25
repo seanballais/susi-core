@@ -8,7 +8,7 @@ use std::sync::Arc;
 use crate::ds::Queue;
 use crate::errors::Error;
 use crate::ffi::errors::update_last_error;
-use crate::tasks::{EncryptionTask, TaskID, TASK_QUEUE};
+use crate::tasks::{EncryptionTask, TaskID, TASK_MANAGER};
 
 /// Returns the value in a Result, or causes the function to return `ret_val`.
 macro_rules! open_file_or_return_on_err {
@@ -66,12 +66,7 @@ pub extern fn queue_encryption_task(
         ptr::null_mut()
     );
 
-    TASK_QUEUE.push(Box::new(EncryptionTask::new(
-        task_id,
-        src_file,
-        dest_file,
-        password_string.into_bytes(),
-    )));
+    TASK_MANAGER.lock().unwrap().queue_encryption_task(src_file, dest_file, password_string.into_bytes());
 
     Box::into_raw(Box::new(task_id))
 }
@@ -108,9 +103,10 @@ mod tests {
         let id =
             unsafe { *queue_encryption_task(src_file_path_c_char, dest_file_path_c_char, password_c_char) };
 
-        assert_eq!(TASK_QUEUE.len(), 1);
+        let mut queue = TASK_MANAGER.lock().unwrap();
+        assert_eq!(queue.num_tasks(), 1);
 
-        let task = TASK_QUEUE.pop();
+        let task = queue.pop_task();
         assert_eq!(task.get_id(), id);
         assert_eq!(task.get_task_type_for_test(), TestTaskType::Encryption);
     }

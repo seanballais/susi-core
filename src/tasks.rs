@@ -1,7 +1,9 @@
+use std::cell::OnceCell;
+use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use once_cell::sync::Lazy;
+use std::sync::Mutex;
 
 use rand::{rngs::OsRng, RngCore};
 use uuid::Uuid;
@@ -10,14 +12,16 @@ use crate::crypto::{
     decrypt_from_ssef_file, encrypt_to_ssef_file, AES256GCMNonce, IO_BUFFER_LEN, SALT_LENGTH,
 };
 use crate::ds::{FIFOQueue, Queue};
-use crate::errors::Result;
+use crate::errors::{Error, Result};
 
 pub type TaskObject = Box<dyn Task + Send>;
 pub type TaskFIFOQueue = FIFOQueue<TaskObject>;
 
-// We're not using OnceLock here since FIFOQueue is already thread-safe. Any further locking may
-// affect performance.
-pub static TASK_QUEUE: Lazy<TaskFIFOQueue> = Lazy::new(|| { FIFOQueue::new() });
+pub static TASK_MANAGER: OnceCell<Mutex<TaskManager>> = OnceCell::new();
+
+pub fn init_task_manager() {
+    TASK_MANAGER.get_or_init(|| { Mutex::new(TaskManager::new()) });
+}
 
 pub trait Task {
     fn run(
@@ -33,7 +37,48 @@ pub trait Task {
     fn get_task_type_for_test(&self) -> TestTaskType;
 }
 
+pub struct TaskManager {
+    task_queue: TaskFIFOQueue,
+    task_statuses: HashMap<TaskID, TaskStatus>
+}
 
+impl TaskManager {
+    pub fn new() -> Self {
+        Self {
+            task_queue: TaskFIFOQueue::new(),
+            task_statuses: HashMap::new()
+        }
+    }
+
+    pub fn queue_encryption_task(&mut self, src_file: File, dest_file: File, password: Vec<u8>) -> TaskID {
+        let id = TaskID::new();
+        let task = EncryptionTask::new(id, src_file, dest_file, password);
+        self.queue_task(Box::new(task));
+
+        let status = TaskStatus::new();
+        self.task_statuses.insert(id, status);
+
+        id
+    }
+
+    pub fn pop_task(&mut self) -> TaskObject {
+        self.task_queue.pop()
+    }
+
+    pub fn get_task_status(&mut self, id: TaskID) -> Option<&mut TaskStatus> {
+        self.task_statuses.get_mut(&id)
+    }
+
+    pub fn num_tasks(&self) -> usize {
+        self.task_queue.len()
+    }
+
+    fn queue_task(&mut self, task: TaskObject) -> TaskID {
+        self.task_queue.push(task);
+
+        task.get_id()
+    }
+}
 
 #[derive(Debug)]
 pub struct EncryptionTask {
@@ -141,7 +186,7 @@ impl Task for DecryptionTask {
     }
 }
 
-#[derive(Debug, Eq, Clone, Copy)]
+#[derive(Debug, Eq, Clone, Copy, Hash)]
 pub struct TaskID {
     upper_id: u64,
     lower_id: u64
@@ -169,24 +214,20 @@ impl PartialEq for TaskID {
 
 #[derive(Debug)]
 pub struct TaskStatus {
-    task_id: TaskID,
     num_read_bytes: AtomicUsize,
     num_written_bytes: AtomicUsize,
-    should_stop: AtomicBool
+    should_stop: AtomicBool,
+    last_error: Mutex<Error>
 }
 
 impl TaskStatus {
-    pub fn new(task_id: TaskID) -> Self {
+    pub fn new() -> Self {
         Self {
-            task_id,
             num_read_bytes: AtomicUsize::new(0),
             num_written_bytes: AtomicUsize::new(0),
-            should_stop: AtomicBool::new(false)
+            should_stop: AtomicBool::new(false),
+            last_error: Mutex::new(Error::None)
         }
-    }
-
-    pub fn get_task_id(&self) -> TaskID {
-        self.task_id
     }
 
     pub fn get_num_read_bytes_mut_ref(&mut self) -> &mut AtomicUsize {
@@ -201,10 +242,20 @@ impl TaskStatus {
         &mut self.should_stop
     }
 
+    pub fn get_last_error(&self) -> Error {
+        self.last_error.lock().unwrap().clone()
+    }
+
+    pub fn set_last_error(&mut self, error: Error) {
+        let mut last_error = self.last_error.lock().unwrap();
+        *last_error = error;
+    }
+
     pub fn clear(&mut self) {
         self.num_read_bytes.store(0, Ordering::Acquire);
         self.num_written_bytes.store(0, Ordering::Relaxed);
         self.should_stop.store(false, Ordering::Release);
+        self.last_error = Mutex::new(Error::None);
     }
 }
 
