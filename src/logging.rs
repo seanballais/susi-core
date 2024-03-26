@@ -6,13 +6,12 @@ use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::prelude::*;
 
 use crate::errors::{Error, Result};
-use crate::logging;
 
 // We need these alive throughout the lifetime of the client program so that we can keep on logging.
 // We don't need to access this more than once, other than when deallocating this one.
 static LOGGING_GUARDS: OnceLock<Vec<WorkerGuard>> = OnceLock::new();
 
-pub fn setup_logging() -> Result<Vec<tracing_appender::non_blocking::WorkerGuard>> {
+pub fn setup_logging() -> Result<Vec<WorkerGuard>> {
     println!("Getting the log directory path... ");
     let log_dir = get_logging_directory()?;
     if !log_dir.exists() {
@@ -53,7 +52,7 @@ pub fn init_logging() {
         return;
     }
 
-    let log_setup_res = logging::setup_logging();
+    let log_setup_res = setup_logging();
     match log_setup_res {
         Ok(guards) => {
             // No need to worry if it fails to set the guards. It's all good.

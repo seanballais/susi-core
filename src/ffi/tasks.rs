@@ -5,7 +5,6 @@ use std::path::PathBuf;
 use std::ptr;
 use std::sync::Arc;
 
-use crate::ds::Queue;
 use crate::errors::Error;
 use crate::ffi::errors::update_last_error;
 use crate::tasks::{TaskID, TASK_MANAGER};

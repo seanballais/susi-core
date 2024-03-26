@@ -1,4 +1,3 @@
-mod components;
 mod crypto;
 mod ds;
 mod errors;
