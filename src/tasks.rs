@@ -1,9 +1,8 @@
-use std::cell::OnceCell;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use rand::{rngs::OsRng, RngCore};
 use uuid::Uuid;
@@ -17,7 +16,7 @@ use crate::errors::{Error, Result};
 pub type TaskObject = Box<dyn Task + Send>;
 pub type TaskFIFOQueue = FIFOQueue<TaskObject>;
 
-pub static TASK_MANAGER: OnceCell<Mutex<TaskManager>> = OnceCell::new();
+pub static TASK_MANAGER: OnceLock<Mutex<TaskManager>> = OnceLock::new();
 
 pub fn init_task_manager() {
     TASK_MANAGER.get_or_init(|| { Mutex::new(TaskManager::new()) });
@@ -26,9 +25,9 @@ pub fn init_task_manager() {
 pub trait Task {
     fn run(
         &mut self,
-        num_read_bytes: Option<&mut AtomicUsize>,
-        num_written_bytes: Option<&mut AtomicUsize>,
-        should_stop: Option<&mut AtomicBool>,
+        num_read_bytes: Option<Arc<AtomicUsize>>,
+        num_written_bytes: Option<Arc<AtomicUsize>>,
+        should_stop: Option<Arc<AtomicBool>>,
     ) -> Result<()>;
 
     fn get_id(&self) -> TaskID;
@@ -74,9 +73,10 @@ impl TaskManager {
     }
 
     fn queue_task(&mut self, task: TaskObject) -> TaskID {
+        let id = task.get_id().clone();
         self.task_queue.push(task);
 
-        task.get_id()
+        id
     }
 }
 
@@ -114,9 +114,9 @@ impl EncryptionTask {
 impl Task for EncryptionTask {
     fn run(
         &mut self,
-        num_read_bytes: Option<&mut AtomicUsize>,
-        num_written_bytes: Option<&mut AtomicUsize>,
-        should_stop: Option<&mut AtomicBool>,
+        num_read_bytes: Option<Arc<AtomicUsize>>,
+        num_written_bytes: Option<Arc<AtomicUsize>>,
+        should_stop: Option<Arc<AtomicBool>>
     ) -> Result<()> {
         encrypt_to_ssef_file(
             &mut self.src_file,
@@ -163,9 +163,9 @@ impl DecryptionTask {
 impl Task for DecryptionTask {
     fn run(
         &mut self,
-        num_read_bytes: Option<&mut AtomicUsize>,
-        num_written_bytes: Option<&mut AtomicUsize>,
-        should_stop: Option<&mut AtomicBool>,
+        num_read_bytes: Option<Arc<AtomicUsize>>,
+        num_written_bytes: Option<Arc<AtomicUsize>>,
+        should_stop: Option<Arc<AtomicBool>>
     ) -> Result<()> {
         decrypt_from_ssef_file(
             &mut self.src_file,
@@ -174,7 +174,7 @@ impl Task for DecryptionTask {
             &self.buffer_len,
             num_read_bytes,
             num_written_bytes,
-            should_stop,
+            should_stop
         )
     }
 
@@ -214,36 +214,42 @@ impl PartialEq for TaskID {
 
 #[derive(Debug)]
 pub struct TaskStatus {
-    num_read_bytes: AtomicUsize,
-    num_written_bytes: AtomicUsize,
-    should_stop: AtomicBool,
-    last_error: Mutex<Error>
+    num_read_bytes: Arc<AtomicUsize>,
+    num_written_bytes: Arc<AtomicUsize>,
+    should_stop: Arc<AtomicBool>,
+    last_error: Mutex<Error>,
+    progress: Mutex<TaskProgress>
 }
 
 impl TaskStatus {
     pub fn new() -> Self {
         Self {
-            num_read_bytes: AtomicUsize::new(0),
-            num_written_bytes: AtomicUsize::new(0),
-            should_stop: AtomicBool::new(false),
-            last_error: Mutex::new(Error::None)
+            num_read_bytes: Arc::new(AtomicUsize::new(0)),
+            num_written_bytes: Arc::new(AtomicUsize::new(0)),
+            should_stop: Arc::new(AtomicBool::new(false)),
+            last_error: Mutex::new(Error::None),
+            progress: Mutex::new(TaskProgress::QUEUED)
         }
     }
 
-    pub fn get_num_read_bytes_mut_ref(&mut self) -> &mut AtomicUsize {
-        &mut self.num_read_bytes
+    pub fn get_num_read_bytes_ref(&self) -> Arc<AtomicUsize> {
+        self.num_read_bytes.clone()
     }
 
-    pub fn get_num_written_bytes_mut_ref(&mut self) -> &mut AtomicUsize {
-        &mut self.num_written_bytes
+    pub fn get_num_written_bytes_ref(&self) -> Arc<AtomicUsize> {
+        self.num_written_bytes.clone()
     }
 
-    pub fn get_should_stop_mut_ref(&mut self) -> &mut AtomicBool {
-        &mut self.should_stop
+    pub fn get_should_stop_ref(&self) -> Arc<AtomicBool> {
+        self.should_stop.clone()
     }
 
     pub fn get_last_error(&self) -> Error {
         self.last_error.lock().unwrap().clone()
+    }
+
+    pub fn get_progress(&self) -> TaskProgress {
+        self.progress.lock().unwrap().clone()
     }
 
     pub fn set_last_error(&mut self, error: Error) {
@@ -251,12 +257,24 @@ impl TaskStatus {
         *last_error = error;
     }
 
+    pub fn set_progress(&mut self, new_progress: TaskProgress) {
+        let mut progress = self.progress.lock().unwrap();
+        *progress = new_progress;
+    }
+
     pub fn clear(&mut self) {
-        self.num_read_bytes.store(0, Ordering::Acquire);
+        self.num_read_bytes.store(0, Ordering::Relaxed);
         self.num_written_bytes.store(0, Ordering::Relaxed);
-        self.should_stop.store(false, Ordering::Release);
+        self.should_stop.store(false, Ordering::Relaxed);
         self.last_error = Mutex::new(Error::None);
     }
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum TaskProgress {
+    QUEUED,
+    RUNNING,
+    DONE
 }
 
 #[cfg(test)]
@@ -268,5 +286,4 @@ pub enum TestTaskType {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
 }

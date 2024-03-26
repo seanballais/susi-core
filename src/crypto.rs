@@ -46,9 +46,9 @@ pub fn encrypt_to_ssef_file(
     salt: &[u8],
     nonce: &AES256GCMNonce,
     buffer_len: &usize,
-    num_read_bytes: Option<&mut AtomicUsize>,
-    num_written_bytes: Option<&mut AtomicUsize>,
-    should_stop: Option<&mut AtomicBool>,
+    num_read_bytes: Option<Arc<AtomicUsize>>,
+    num_written_bytes: Option<Arc<AtomicUsize>>,
+    should_stop: Option<Arc<AtomicBool>>,
 ) -> Result<()> {
     let span = tracing::span!(tracing::Level::INFO, "encrypt_to_ssef_file");
     let _enter = span.enter();
@@ -110,9 +110,9 @@ pub fn decrypt_from_ssef_file(
     dest_file: &mut File,
     password: &[u8],
     buffer_len: &usize,
-    num_read_bytes: Option<&mut AtomicUsize>,
-    num_written_bytes: Option<&mut AtomicUsize>,
-    should_stop: Option<&mut AtomicBool>,
+    num_read_bytes: Option<Arc<AtomicUsize>>,
+    num_written_bytes: Option<Arc<AtomicUsize>>,
+    should_stop: Option<Arc<AtomicBool>>,
 ) -> Result<()> {
     let span = tracing::span!(tracing::Level::INFO, "decrypt_to_ssef_file");
     let _enter = span.enter();
@@ -194,9 +194,9 @@ fn encrypt_file(
     key: &SusiKey,
     nonce: &AES256GCMNonce,
     buffer_len: &usize,
-    num_read_bytes: Option<&mut AtomicUsize>,
-    num_written_bytes: Option<&mut AtomicUsize>,
-    should_stop: Option<&mut AtomicBool>,
+    num_read_bytes: Option<Arc<AtomicUsize>>,
+    num_written_bytes: Option<Arc<AtomicUsize>>,
+    should_stop: Option<Arc<AtomicBool>>
 ) -> Result<()> {
     let span = tracing::span!(tracing::Level::INFO, "encrypt_file");
     let _enter = span.enter();
@@ -279,9 +279,9 @@ fn decrypt_file(
     key: &SusiKey,
     nonce: &AES256GCMNonce,
     buffer_len: &usize,
-    num_read_bytes: Option<&mut AtomicUsize>,
-    num_written_bytes: Option<&mut AtomicUsize>,
-    should_stop: Option<&mut AtomicBool>,
+    num_read_bytes: Option<Arc<AtomicUsize>>,
+    num_written_bytes: Option<Arc<AtomicUsize>>,
+    should_stop: Option<Arc<AtomicBool>>
 ) -> Result<()> {
     let span = tracing::span!(tracing::Level::INFO, "decrypt_file");
     let _enter = span.enter();

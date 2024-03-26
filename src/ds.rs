@@ -11,6 +11,7 @@ pub trait Queue<T> {
     fn is_empty(&self) -> bool;
 }
 
+#[derive(Debug)]
 pub struct FIFOQueue<T> {
     data: Mutex<VecDeque<T>>,
     cond_var: Condvar,
