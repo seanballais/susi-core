@@ -23,9 +23,8 @@ macro_rules! open_file_or_return_on_err {
 }
 
 #[no_mangle]
-pub extern fn queue_encryption_task(
+pub extern "C" fn queue_encryption_task(
     src_file: *const c_char,
-    dest_file: *const c_char,
     password: *const c_char,
 ) -> *mut TaskID {
     let src_file_c_str = unsafe {
@@ -34,12 +33,6 @@ pub extern fn queue_encryption_task(
         CStr::from_ptr(src_file)
     };
     let src_file_path = src_file_c_str.to_string_lossy().into_owned();
-    let dest_file_c_str = unsafe {
-        assert!(!dest_file.is_null());
-
-        CStr::from_ptr(dest_file)
-    };
-    let dest_file_path = dest_file_c_str.to_string_lossy().into_owned();
     let password_c_str = unsafe {
         assert!(!password.is_null());
 
@@ -56,21 +49,15 @@ pub extern fn queue_encryption_task(
         src_file_path.clone(),
         ptr::null_mut()
     );
-    let dest_file = open_file_or_return_on_err!(
-        File::options()
-            .read(true)
-            .write(true)
-            .open(dest_file_path.clone()),
-        dest_file_path.clone(),
-        ptr::null_mut()
-    );
+
+    println!("Queued.");
 
     TASK_MANAGER
         .get()
         .unwrap()
         .lock()
         .unwrap()
-        .queue_encryption_task(src_file, dest_file, password_string.into_bytes());
+        .queue_encryption_task(src_file, password_string.into_bytes());
 
     Box::into_raw(Box::new(task_id))
 }

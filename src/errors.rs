@@ -35,7 +35,7 @@ impl error::Error for Error {
             Self::Argon2Error(e) => Some(e),
             Self::FromUTF8Error(e) => Some(e),
             Self::IOError(_, e) => Some(e),
-            _ => None
+            _ => None,
         }
     }
 }

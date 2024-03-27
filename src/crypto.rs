@@ -196,7 +196,7 @@ fn encrypt_file(
     buffer_len: &usize,
     num_read_bytes: Option<Arc<AtomicUsize>>,
     num_written_bytes: Option<Arc<AtomicUsize>>,
-    should_stop: Option<Arc<AtomicBool>>
+    should_stop: Option<Arc<AtomicBool>>,
 ) -> Result<()> {
     let span = tracing::span!(tracing::Level::INFO, "encrypt_file");
     let _enter = span.enter();
@@ -281,7 +281,7 @@ fn decrypt_file(
     buffer_len: &usize,
     num_read_bytes: Option<Arc<AtomicUsize>>,
     num_written_bytes: Option<Arc<AtomicUsize>>,
-    should_stop: Option<Arc<AtomicBool>>
+    should_stop: Option<Arc<AtomicBool>>,
 ) -> Result<()> {
     let span = tracing::span!(tracing::Level::INFO, "decrypt_file");
     let _enter = span.enter();

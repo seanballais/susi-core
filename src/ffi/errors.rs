@@ -19,7 +19,7 @@ thread_local! {
 /// if there are any errors, for example, when passed a null pointer or a buffer of insufficient
 /// size.
 #[no_mangle]
-pub unsafe extern fn get_last_error_message(buffer: *mut c_char, length: c_int) -> c_int {
+pub unsafe extern "C" fn get_last_error_message(buffer: *mut c_char, length: c_int) -> c_int {
     if buffer.is_null() {
         tracing::warn!("Null pointer passed into get_last_error_message() as the buffer");
 
@@ -59,15 +59,15 @@ pub unsafe extern fn get_last_error_message(buffer: *mut c_char, length: c_int) 
 }
 
 #[no_mangle]
-pub extern fn get_last_error_message_length() -> c_int {
+pub extern "C" fn get_last_error_message_length() -> c_int {
     LAST_FFI_ERROR.with(|curr| match *curr.borrow() {
         Some(ref err) => err.to_string().len() as c_int + 1,
-        None => 0
+        None => 0,
     })
 }
 
 #[no_mangle]
-pub extern fn has_error() -> bool {
+pub extern "C" fn has_error() -> bool {
     LAST_FFI_ERROR.with(|curr| curr.borrow().is_some())
 }
 

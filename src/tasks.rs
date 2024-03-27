@@ -1,6 +1,10 @@
+use filename::file_name;
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::fmt::{Display, Formatter};
 use std::fs::File;
+use std::io::{Read, Write};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -19,7 +23,7 @@ pub type TaskFIFOQueue = FIFOQueue<TaskObject>;
 pub static TASK_MANAGER: OnceLock<Mutex<TaskManager>> = OnceLock::new();
 
 pub fn init_task_manager() {
-    TASK_MANAGER.get_or_init(|| { Mutex::new(TaskManager::new()) });
+    TASK_MANAGER.get_or_init(|| Mutex::new(TaskManager::new()));
 }
 
 pub trait Task {
@@ -38,20 +42,20 @@ pub trait Task {
 
 pub struct TaskManager {
     task_queue: TaskFIFOQueue,
-    task_statuses: HashMap<TaskID, TaskStatus>
+    task_statuses: HashMap<TaskID, TaskStatus>,
 }
 
 impl TaskManager {
     pub fn new() -> Self {
         Self {
             task_queue: TaskFIFOQueue::new(),
-            task_statuses: HashMap::new()
+            task_statuses: HashMap::new(),
         }
     }
 
-    pub fn queue_encryption_task(&mut self, src_file: File, dest_file: File, password: Vec<u8>) -> TaskID {
+    pub fn queue_encryption_task(&mut self, src_file: File, password: Vec<u8>) -> TaskID {
         let id = TaskID::new();
-        let task = EncryptionTask::new(id, src_file, dest_file, password);
+        let task = EncryptionTask::new(id, src_file, password);
         self.queue_task(Box::new(task));
 
         let status = TaskStatus::new();
@@ -84,7 +88,6 @@ impl TaskManager {
 pub struct EncryptionTask {
     id: TaskID,
     src_file: File,
-    dest_file: File,
     password: Vec<u8>,
     salt: Vec<u8>,
     nonce: AES256GCMNonce,
@@ -92,7 +95,7 @@ pub struct EncryptionTask {
 }
 
 impl EncryptionTask {
-    pub fn new(id: TaskID, src_file: File, dest_file: File, password: Vec<u8>) -> Self {
+    pub fn new(id: TaskID, src_file: File, password: Vec<u8>) -> Self {
         let mut salt: Vec<u8> = Vec::with_capacity(SALT_LENGTH);
         OsRng.fill_bytes(salt.as_mut_slice());
 
@@ -102,7 +105,6 @@ impl EncryptionTask {
         Self {
             id,
             src_file,
-            dest_file,
             password,
             salt,
             nonce,
@@ -116,11 +118,21 @@ impl Task for EncryptionTask {
         &mut self,
         num_read_bytes: Option<Arc<AtomicUsize>>,
         num_written_bytes: Option<Arc<AtomicUsize>>,
-        should_stop: Option<Arc<AtomicBool>>
+        should_stop: Option<Arc<AtomicBool>>,
     ) -> Result<()> {
+        // We'll write to a temporary file first. This helps us prevent incomplete files as much as
+        // possible. We'll copy the temporary file to the actual destination after the encryption
+        // is complete.
+        let mut temp_dest_file = match tempfile::tempfile() {
+            Ok(f) => f,
+            Err(e) => return Err(Error::IOError(PathBuf::new(), Arc::new(e))),
+        };
+
+        let should_stop_copy = should_stop.clone();
+
         encrypt_to_ssef_file(
             &mut self.src_file,
-            &mut self.dest_file,
+            &mut temp_dest_file,
             self.password.as_slice(),
             self.salt.as_slice(),
             &self.nonce,
@@ -128,10 +140,51 @@ impl Task for EncryptionTask {
             num_read_bytes,
             num_written_bytes,
             should_stop,
-        )
+        )?;
+
+        if let Some(stop) = should_stop_copy {
+            if stop.fetch_and(true, Ordering::Relaxed) {
+                return Ok(());
+            }
+        }
+
+        // Then we copy to the actual destination.
+        let file_name =
+            file_name(&self.src_file).map_err(|e| Error::IOError(PathBuf::new(), Arc::new(e)))?;
+        let mut src_file_ext = OsString::from(file_name.extension().unwrap_or_else(|| "".as_ref()));
+        let mut dest_file_ext = src_file_ext.clone();
+        dest_file_ext.push(".ssef");
+
+        let mut dest_file_path = file_name.clone();
+        dest_file_path.set_extension(dest_file_ext);
+
+        let mut dest_file = File::options()
+            .write(true)
+            .create(true)
+            .open(dest_file_path.clone())
+            .map_err(|e| Error::IOError(PathBuf::new(), Arc::new(e)))?;
+
+        // No progress notification here yet, but this should provide the foundation.
+        let mut buffer = [0u8; IO_BUFFER_LEN];
+        loop {
+            let read_count = temp_dest_file
+                .read(&mut buffer)
+                .map_err(|e| Error::IOError(PathBuf::new(), Arc::from(e)))?;
+            if read_count == 0 {
+                break;
+            } else {
+                dest_file
+                    .write(&buffer)
+                    .map_err(|e| Error::IOError(dest_file_path.clone(), Arc::from(e)))?;
+            }
+        }
+
+        Ok(())
     }
 
-    fn get_id(&self) -> TaskID { self.id }
+    fn get_id(&self) -> TaskID {
+        self.id
+    }
 
     #[cfg(test)]
     fn get_task_type_for_test(&self) -> TestTaskType {
@@ -165,7 +218,7 @@ impl Task for DecryptionTask {
         &mut self,
         num_read_bytes: Option<Arc<AtomicUsize>>,
         num_written_bytes: Option<Arc<AtomicUsize>>,
-        should_stop: Option<Arc<AtomicBool>>
+        should_stop: Option<Arc<AtomicBool>>,
     ) -> Result<()> {
         decrypt_from_ssef_file(
             &mut self.src_file,
@@ -174,11 +227,13 @@ impl Task for DecryptionTask {
             &self.buffer_len,
             num_read_bytes,
             num_written_bytes,
-            should_stop
+            should_stop,
         )
     }
 
-    fn get_id(&self) -> TaskID { self.id }
+    fn get_id(&self) -> TaskID {
+        self.id
+    }
 
     #[cfg(test)]
     fn get_task_type_for_test(&self) -> TestTaskType {
@@ -189,7 +244,7 @@ impl Task for DecryptionTask {
 #[derive(Debug, Eq, Clone, Copy, Hash)]
 pub struct TaskID {
     upper_id: u64,
-    lower_id: u64
+    lower_id: u64,
 }
 
 impl TaskID {
@@ -218,7 +273,7 @@ pub struct TaskStatus {
     num_written_bytes: Arc<AtomicUsize>,
     should_stop: Arc<AtomicBool>,
     last_error: Mutex<Error>,
-    progress: Mutex<TaskProgress>
+    progress: Mutex<TaskProgress>,
 }
 
 impl TaskStatus {
@@ -228,7 +283,7 @@ impl TaskStatus {
             num_written_bytes: Arc::new(AtomicUsize::new(0)),
             should_stop: Arc::new(AtomicBool::new(false)),
             last_error: Mutex::new(Error::None),
-            progress: Mutex::new(TaskProgress::QUEUED)
+            progress: Mutex::new(TaskProgress::QUEUED),
         }
     }
 
@@ -274,7 +329,7 @@ impl TaskStatus {
 pub enum TaskProgress {
     QUEUED,
     RUNNING,
-    DONE
+    DONE,
 }
 
 #[cfg(test)]
@@ -285,5 +340,4 @@ pub enum TestTaskType {
 }
 
 #[cfg(test)]
-mod tests {
-}
+mod tests {}

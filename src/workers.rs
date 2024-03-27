@@ -1,9 +1,9 @@
+use crate::ds::{FIFOQueue, Queue};
 use std::num::NonZeroUsize;
 use std::sync::OnceLock;
 use std::thread;
-use crate::ds::{FIFOQueue, Queue};
 
-use crate::tasks::{TASK_MANAGER, TaskProgress};
+use crate::tasks::{TaskProgress, TASK_MANAGER};
 
 pub static WORKER_POOL: OnceLock<WorkerPool> = OnceLock::new();
 
@@ -35,9 +35,7 @@ impl WorkerPool {
             workers.push(Worker::new(id as u32));
         }
 
-        Self {
-            workers
-        }
+        Self { workers }
     }
 }
 
@@ -65,14 +63,20 @@ impl Worker {
                 drop(task_manager); // IMPORTANT. Otherwise, other workers will be locked out.
 
                 tracing::info!("Thread {} running task {}", id, task.get_id());
-                let res = task.run(Some(num_read_bytes), Some(num_written_bytes), Some(should_stop));
+                let res = task.run(
+                    Some(num_read_bytes),
+                    Some(num_written_bytes),
+                    Some(should_stop),
+                );
 
                 // Reacquire lock because we need to update a task status.
                 let mut task_manager = TASK_MANAGER.get().unwrap().lock().unwrap();
                 let task_status = task_manager.get_task_status(task.get_id()).unwrap();
                 task_status.set_progress(TaskProgress::DONE);
                 match res {
-                    Err(e) => { task_status.set_last_error(e); },
+                    Err(e) => {
+                        task_status.set_last_error(e);
+                    }
                     _ => {}
                 }
             }
