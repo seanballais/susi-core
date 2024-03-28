@@ -6,9 +6,11 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
+use once_cell::sync::Lazy;
 
 use rand::{rngs::OsRng, RngCore};
+use rand::distributions::{Alphanumeric, DistString};
 use uuid::Uuid;
 
 use crate::crypto::{
@@ -20,10 +22,10 @@ use crate::errors::{Error, Result};
 pub type TaskObject = Box<dyn Task + Send>;
 pub type TaskFIFOQueue = FIFOQueue<TaskObject>;
 
-pub static TASK_MANAGER: OnceLock<Mutex<TaskManager>> = OnceLock::new();
+pub static TASK_MANAGER: Lazy<TaskManager> = Lazy::new(|| TaskManager::new());
 
 pub fn init_task_manager() {
-    TASK_MANAGER.get_or_init(|| Mutex::new(TaskManager::new()));
+    TASK_MANAGER.kick_start();
 }
 
 pub trait Task {
@@ -42,47 +44,57 @@ pub trait Task {
 
 pub struct TaskManager {
     task_queue: TaskFIFOQueue,
-    task_statuses: HashMap<TaskID, TaskStatus>,
+    task_statuses: Mutex<HashMap<TaskID, Arc<Mutex<TaskStatus>>>>,
 }
 
 impl TaskManager {
     pub fn new() -> Self {
         Self {
             task_queue: TaskFIFOQueue::new(),
-            task_statuses: HashMap::new(),
+            task_statuses: Mutex::new(HashMap::new()),
         }
     }
 
-    pub fn queue_encryption_task(&mut self, src_file: File, password: Vec<u8>) -> TaskID {
+    // TaskManager is loaded as a lazy static, so calling function may initialize it.
+    pub fn kick_start(&self) {}
+
+    pub fn queue_encryption_task(&self, src_file: File, password: Vec<u8>) -> TaskID {
         let id = TaskID::new();
         let task = EncryptionTask::new(id, src_file, password);
         self.queue_task(Box::new(task));
 
+        let mut task_statuses = self.task_statuses.lock().unwrap();
         let status = TaskStatus::new();
-        self.task_statuses.insert(id, status);
+        task_statuses.insert(id, Arc::new(Mutex::new(status)));
 
         id
     }
 
-    pub fn pop_task(&mut self) -> TaskObject {
+    pub fn pop_task(&self) -> TaskObject {
         self.task_queue.pop()
     }
 
-    pub fn get_task_status(&mut self, id: TaskID) -> Option<&mut TaskStatus> {
-        self.task_statuses.get_mut(&id)
+    pub fn get_task_status(&self, id: TaskID) -> Option<Arc<Mutex<TaskStatus>>> {
+        let task_statuses = self.task_statuses.lock().unwrap();
+        match task_statuses.get(&id) {
+            Some(status) => Some(status.clone()),
+            None => None
+        }
     }
 
     pub fn num_tasks(&self) -> usize {
         self.task_queue.len()
     }
 
-    fn queue_task(&mut self, task: TaskObject) -> TaskID {
+    fn queue_task(&self, task: TaskObject) -> TaskID {
         let id = task.get_id().clone();
         self.task_queue.push(task);
 
         id
     }
 }
+
+unsafe impl Sync for TaskManager {}
 
 #[derive(Debug)]
 pub struct EncryptionTask {
@@ -96,8 +108,15 @@ pub struct EncryptionTask {
 
 impl EncryptionTask {
     pub fn new(id: TaskID, src_file: File, password: Vec<u8>) -> Self {
-        let mut salt: Vec<u8> = Vec::with_capacity(SALT_LENGTH);
-        OsRng.fill_bytes(salt.as_mut_slice());
+        let salt = Alphanumeric.sample_string(&mut rand::thread_rng(), SALT_LENGTH).into_bytes();
+
+        let mut file = File::options()
+            .write(true)
+            .create(true)
+            .open("C:\\Users\\sean\\AppData\\Local\\Susi\\logs\\test.log")
+            .unwrap();
+        let m = format!("Salt: {:?}", salt);
+        file.write_all(m.as_bytes()).unwrap();
 
         let mut nonce = AES256GCMNonce::default();
         OsRng.fill_bytes(&mut nonce);
@@ -151,7 +170,7 @@ impl Task for EncryptionTask {
         // Then we copy to the actual destination.
         let file_name =
             file_name(&self.src_file).map_err(|e| Error::IOError(PathBuf::new(), Arc::new(e)))?;
-        let mut src_file_ext = OsString::from(file_name.extension().unwrap_or_else(|| "".as_ref()));
+        let src_file_ext = OsString::from(file_name.extension().unwrap_or_else(|| "".as_ref()));
         let mut dest_file_ext = src_file_ext.clone();
         dest_file_ext.push(".ssef");
 
@@ -330,6 +349,7 @@ pub enum TaskProgress {
     QUEUED,
     RUNNING,
     DONE,
+    FAILED
 }
 
 #[cfg(test)]

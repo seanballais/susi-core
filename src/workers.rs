@@ -51,9 +51,9 @@ impl Worker {
         let thread = thread::spawn(move || {
             loop {
                 logging::info!("Thread {} is getting a task", id);
-                let mut task_manager = TASK_MANAGER.get().unwrap().lock().unwrap();
-                let mut task = task_manager.pop_task();
-                let task_status = task_manager.get_task_status(task.get_id()).unwrap();
+                let mut task = TASK_MANAGER.pop_task();
+                let task_status_ptr = TASK_MANAGER.get_task_status(task.get_id()).unwrap();
+                let mut task_status = task_status_ptr.lock().unwrap();
 
                 let num_read_bytes = task_status.get_num_read_bytes_ref();
                 let num_written_bytes = task_status.get_num_written_bytes_ref();
@@ -61,24 +61,21 @@ impl Worker {
 
                 task_status.set_progress(TaskProgress::RUNNING);
 
-                drop(task_manager); // IMPORTANT. Otherwise, other workers will be locked out.
-
                 logging::info!("Thread {} running task {}", id, task.get_id());
                 let res = task.run(
-                    Some(num_read_bytes),
-                    Some(num_written_bytes),
-                    Some(should_stop),
+                    Some(num_read_bytes.clone()),
+                    Some(num_written_bytes.clone()),
+                    Some(should_stop.clone()),
                 );
 
-                // Reacquire lock because we need to update a task status.
-                let mut task_manager = TASK_MANAGER.get().unwrap().lock().unwrap();
-                let task_status = task_manager.get_task_status(task.get_id()).unwrap();
-                task_status.set_progress(TaskProgress::DONE);
                 match res {
+                    Ok(()) => {
+                        task_status.set_progress(TaskProgress::DONE);
+                    }
                     Err(e) => {
                         task_status.set_last_error(e);
+                        task_status.set_progress(TaskProgress::FAILED);
                     }
-                    _ => {}
                 }
             }
         });

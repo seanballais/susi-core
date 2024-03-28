@@ -52,12 +52,7 @@ pub extern "C" fn queue_encryption_task(
 
     println!("Queued.");
 
-    TASK_MANAGER
-        .get()
-        .unwrap()
-        .lock()
-        .unwrap()
-        .queue_encryption_task(src_file, password_string.into_bytes());
+    TASK_MANAGER.queue_encryption_task(src_file, password_string.into_bytes());
 
     Box::into_raw(Box::new(task_id))
 }
