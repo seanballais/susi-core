@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fmt::{Display, Formatter};
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::{Read, Seek, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -109,15 +109,6 @@ pub struct EncryptionTask {
 impl EncryptionTask {
     pub fn new(id: TaskID, src_file: File, password: Vec<u8>) -> Self {
         let salt = Alphanumeric.sample_string(&mut rand::thread_rng(), SALT_LENGTH).into_bytes();
-
-        let mut file = File::options()
-            .write(true)
-            .create(true)
-            .open("C:\\Users\\sean\\AppData\\Local\\Susi\\logs\\test.log")
-            .unwrap();
-        let m = format!("Salt: {:?}", salt);
-        file.write_all(m.as_bytes()).unwrap();
-
         let mut nonce = AES256GCMNonce::default();
         OsRng.fill_bytes(&mut nonce);
 
@@ -168,6 +159,9 @@ impl Task for EncryptionTask {
         }
 
         // Then we copy to the actual destination.
+        temp_dest_file.rewind()?; // We need to rewind this file since we moved the
+                                  // file's cursor earlier.
+
         let file_name =
             file_name(&self.src_file).map_err(|e| Error::IOError(PathBuf::new(), Arc::new(e)))?;
         let src_file_ext = OsString::from(file_name.extension().unwrap_or_else(|| "".as_ref()));
@@ -179,16 +173,23 @@ impl Task for EncryptionTask {
 
         let mut dest_file = File::options()
             .write(true)
+            .truncate(true)
             .create(true)
             .open(dest_file_path.clone())
             .map_err(|e| Error::IOError(PathBuf::new(), Arc::new(e)))?;
 
         // No progress notification here yet, but this should provide the foundation.
         let mut buffer = [0u8; IO_BUFFER_LEN];
+        let mut file = File::options()
+            .write(true)
+            .create(true)
+            .open("C:\\Users\\sean\\AppData\\Local\\Susi\\logs\\test.log")
+            .unwrap();
         loop {
             let read_count = temp_dest_file
                 .read(&mut buffer)
                 .map_err(|e| Error::IOError(PathBuf::new(), Arc::from(e)))?;
+            file.write_all(format!("Number of bytes read: {}\n", read_count).as_bytes()).unwrap();
             if read_count == 0 {
                 break;
             } else {
