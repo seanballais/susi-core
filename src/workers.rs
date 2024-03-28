@@ -3,6 +3,7 @@ use std::num::NonZeroUsize;
 use std::sync::OnceLock;
 use std::thread;
 
+use crate::logging;
 use crate::tasks::{TaskProgress, TASK_MANAGER};
 
 pub static WORKER_POOL: OnceLock<WorkerPool> = OnceLock::new();
@@ -49,7 +50,7 @@ impl Worker {
     pub fn new(id: u32) -> Self {
         let thread = thread::spawn(move || {
             loop {
-                tracing::info!("Thread {} is getting a task", id);
+                logging::info!("Thread {} is getting a task", id);
                 let mut task_manager = TASK_MANAGER.get().unwrap().lock().unwrap();
                 let mut task = task_manager.pop_task();
                 let task_status = task_manager.get_task_status(task.get_id()).unwrap();
@@ -62,7 +63,7 @@ impl Worker {
 
                 drop(task_manager); // IMPORTANT. Otherwise, other workers will be locked out.
 
-                tracing::info!("Thread {} running task {}", id, task.get_id());
+                logging::info!("Thread {} running task {}", id, task.get_id());
                 let res = task.run(
                     Some(num_read_bytes),
                     Some(num_written_bytes),

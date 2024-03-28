@@ -2,47 +2,52 @@ use crate::errors::{Error, Result};
 use std::collections::HashMap;
 use std::env;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
-pub static LOG_FUNCTIONS: OnceLock<HashMap<LogLevel, fn(String)>> = OnceLock::new();
-
-macro_rules! log_function {
-    ($message: expr, $log_level: path) => {
-        if let Some(functions) = LOG_FUNCTIONS.get() {
-            if let Some(function) = functions.get(&$log_level) {
-                function($message);
-            }
-        }
-    };
-}
+pub static LOG_FUNCTIONS: OnceLock<HashMap<LogLevel, Mutex<Box<dyn Fn(&str) -> () + Send>>>> =
+    OnceLock::new();
 
 #[repr(C)]
-#[derive(Eq, Hash)]
+#[derive(Eq, PartialEq, Hash)]
 pub enum LogLevel {
     INFO,
     WARNING,
     ERROR,
 }
 
-pub fn info(message: String) {
-    log_function!(message, LogLevel::INFO);
+macro_rules! info {
+    ($($x: tt)*) => {
+        crate::logging::log(format!($($x)*), crate::logging::LogLevel::INFO);
+    };
 }
+pub(crate) use info;
 
-pub fn warning(message: String) {
-    log_function!(message, LogLevel::WARNING);
+macro_rules! warning {
+    ($($x: tt)*) => {
+        crate::logging::log(format!($($x)*), crate::logging::LogLevel::WARNING);
+    };
 }
+pub(crate) use warning;
 
-pub fn error(message: String) {
-    log_function!(message, LogLevel::ERROR);
+macro_rules! error {
+    ($($x: tt)*) => {
+        crate::logging::log(format!($($x)*), crate::logging::LogLevel::ERROR);
+    };
 }
+pub(crate) use error;
 
-pub fn register_logging_functions(info: fn(String), warning: fn(String), error: fn(String)) {
+pub fn register_logging_functions(
+    info: impl Fn(&str) -> () + Send + 'static,
+    warning: impl Fn(&str) -> () + Send + 'static,
+    error: impl Fn(&str) -> () + Send + 'static,
+) {
     LOG_FUNCTIONS.get_or_init(|| {
-        let mut log_functions: HashMap<LogLevel, fn(String)> = HashMap::new();
+        let mut log_functions: HashMap<LogLevel, Mutex<Box<dyn Fn(&str) -> () + Send>>> =
+            HashMap::new();
 
-        log_functions.insert(LogLevel::INFO, info);
-        log_functions.insert(LogLevel::WARNING, warning);
-        log_functions.insert(LogLevel::ERROR, error);
+        log_functions.insert(LogLevel::INFO, Mutex::new(Box::new(info)));
+        log_functions.insert(LogLevel::WARNING, Mutex::new(Box::new(warning)));
+        log_functions.insert(LogLevel::ERROR, Mutex::new(Box::new(error)));
 
         log_functions
     });
@@ -51,7 +56,7 @@ pub fn register_logging_functions(info: fn(String), warning: fn(String), error: 
 pub fn get_logging_directory() -> Result<PathBuf> {
     #[cfg(target_family = "unix")]
     {
-        panic!("UNIX-like operating systems (e.g. Linux and macOS) are not yet supported!");
+        compile_error!("UNIX-like operating systems (e.g. Linux and macOS) are not yet supported!");
     }
 
     let mut base_log_dir = PathBuf::new();
@@ -70,4 +75,14 @@ pub fn get_logging_directory() -> Result<PathBuf> {
     }
 
     Ok(base_log_dir)
+}
+
+#[inline(always)]
+pub fn log<S: AsRef<str>>(message: S, level: LogLevel) {
+    if let Some(functions) = LOG_FUNCTIONS.get() {
+        if let Some(function) = functions.get(&level) {
+            let f = function.lock().unwrap();
+            f(message.as_ref());
+        }
+    }
 }

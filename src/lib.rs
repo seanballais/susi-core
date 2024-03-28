@@ -4,8 +4,6 @@ mod errors;
 mod ffi;
 pub mod logging;
 mod metadata;
-mod multithreading;
-mod supervisor;
 mod tasks;
 mod workers;
 

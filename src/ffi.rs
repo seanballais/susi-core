@@ -8,5 +8,5 @@ mod tasks;
 pub extern "C" fn init_susi_core() {
     init_core_systems();
 
-    tracing::info!("Finished initializing core systems");
+    crate::logging::info!("Finished initializing core systems");
 }
