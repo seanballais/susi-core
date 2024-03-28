@@ -180,21 +180,15 @@ impl Task for EncryptionTask {
 
         // No progress notification here yet, but this should provide the foundation.
         let mut buffer = [0u8; IO_BUFFER_LEN];
-        let mut file = File::options()
-            .write(true)
-            .create(true)
-            .open("C:\\Users\\sean\\AppData\\Local\\Susi\\logs\\test.log")
-            .unwrap();
         loop {
             let read_count = temp_dest_file
                 .read(&mut buffer)
                 .map_err(|e| Error::IOError(PathBuf::new(), Arc::from(e)))?;
-            file.write_all(format!("Number of bytes read: {}\n", read_count).as_bytes()).unwrap();
             if read_count == 0 {
                 break;
             } else {
                 dest_file
-                    .write(&buffer)
+                    .write(&buffer[0..read_count])
                     .map_err(|e| Error::IOError(dest_file_path.clone(), Arc::from(e)))?;
             }
         }
