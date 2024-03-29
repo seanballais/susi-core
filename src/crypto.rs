@@ -19,6 +19,7 @@ use crate::logging;
 pub const SALT_LENGTH: usize = 32;
 
 pub const IO_BUFFER_LEN: usize = 1_048_576; // Equals to 1 MiB.
+pub const MINIMUM_PASSWORD_LENGTH: usize = 12;
 
 // Remember that each metadata value only has a max length of 65,535 bytes, since we assign
 // two bytes in the metadata key to track the size of the value.
@@ -167,7 +168,7 @@ pub fn decrypt_from_ssef_file(
 pub fn create_key_from_password(password: &[u8], salt: &[u8]) -> Result<SusiKey> {
     logging::info!("Creating key from password and salt");
 
-    if password.len() < 12 {
+    if password.len() < MINIMUM_PASSWORD_LENGTH {
         return Err(Error::InvalidPasswordLengthError);
     }
 
@@ -311,7 +312,7 @@ fn decrypt_file(
             .map_err(|e| Error::IOError(src_file_name.clone(), Arc::from(e)))?;
 
         if let Some(ref num_bytes) = num_read_bytes {
-            num_bytes.fetch_add(read_count, atomic::Ordering::Relaxed);
+            num_bytes.fetch_add(read_count, Ordering::Relaxed);
         }
 
         if read_count == 0 {

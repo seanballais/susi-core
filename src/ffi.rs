@@ -1,7 +1,6 @@
 use crate::init_core_systems;
 
 pub mod errors;
-mod logging;
 mod tasks;
 
 #[no_mangle]

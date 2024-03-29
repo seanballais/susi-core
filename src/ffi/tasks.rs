@@ -40,7 +40,6 @@ pub extern "C" fn queue_encryption_task(
     };
     let password_string = password_c_str.to_string_lossy().into_owned();
 
-    let task_id = TaskID::new();
     let src_file = open_file_or_return_on_err!(
         File::options()
             .read(true)
@@ -50,9 +49,12 @@ pub extern "C" fn queue_encryption_task(
         ptr::null_mut()
     );
 
-    println!("Queued.");
+    match TASK_MANAGER.queue_encryption_task(src_file, password_string.into_bytes()) {
+        Ok(task_id) => Box::into_raw(Box::new(task_id)),
+        Err(e) => {
+            update_last_error(e);
 
-    TASK_MANAGER.queue_encryption_task(src_file, password_string.into_bytes());
-
-    Box::into_raw(Box::new(task_id))
+            ptr::null_mut()
+        }
+    }
 }

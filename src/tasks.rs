@@ -13,9 +13,7 @@ use rand::{rngs::OsRng, RngCore};
 use rand::distributions::{Alphanumeric, DistString};
 use uuid::Uuid;
 
-use crate::crypto::{
-    decrypt_from_ssef_file, encrypt_to_ssef_file, AES256GCMNonce, IO_BUFFER_LEN, SALT_LENGTH,
-};
+use crate::crypto::{decrypt_from_ssef_file, encrypt_to_ssef_file, AES256GCMNonce, IO_BUFFER_LEN, SALT_LENGTH, MINIMUM_PASSWORD_LENGTH};
 use crate::ds::{FIFOQueue, Queue};
 use crate::errors::{Error, Result};
 
@@ -58,16 +56,16 @@ impl TaskManager {
     // TaskManager is loaded as a lazy static, so calling function may initialize it.
     pub fn kick_start(&self) {}
 
-    pub fn queue_encryption_task(&self, src_file: File, password: Vec<u8>) -> TaskID {
-        let id = TaskID::new();
-        let task = EncryptionTask::new(id, src_file, password);
+    pub fn queue_encryption_task(&self, src_file: File, password: Vec<u8>) -> Result<TaskID> {
+        let task = EncryptionTask::new(src_file, password)?;
+        let task_id = task.id.clone();
         self.queue_task(Box::new(task));
 
         let mut task_statuses = self.task_statuses.lock().unwrap();
         let status = TaskStatus::new();
-        task_statuses.insert(id, Arc::new(Mutex::new(status)));
+        task_statuses.insert(task_id.clone(), Arc::new(Mutex::new(status)));
 
-        id
+        Ok(task_id.clone())
     }
 
     pub fn pop_task(&self) -> TaskObject {
@@ -107,19 +105,26 @@ pub struct EncryptionTask {
 }
 
 impl EncryptionTask {
-    pub fn new(id: TaskID, src_file: File, password: Vec<u8>) -> Self {
+    pub fn new(src_file: File, password: Vec<u8>) -> Result<Self> {
+        let id = TaskID::new();
+
+        let password_string = String::from_utf8_lossy(password.as_slice());
+        if password_string.len() < MINIMUM_PASSWORD_LENGTH {
+            return Err(Error::InvalidPasswordLengthError);
+        }
+
         let salt = Alphanumeric.sample_string(&mut rand::thread_rng(), SALT_LENGTH).into_bytes();
         let mut nonce = AES256GCMNonce::default();
         OsRng.fill_bytes(&mut nonce);
 
-        Self {
+        Ok(Self {
             id,
             src_file,
             password,
             salt,
             nonce,
             buffer_len: IO_BUFFER_LEN,
-        }
+        })
     }
 }
 
@@ -355,4 +360,60 @@ pub enum TestTaskType {
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use std::fs::File;
+    use std::io::{Read, Seek, Write};
+    use crate::crypto::IO_BUFFER_LEN;
+    use crate::tasks::EncryptionTask;
+
+    #[test]
+    fn test_creating_new_encryption_task_properly_works_successfully() {
+        const SRC_FILENAME: &str = "test-source-file.txt";
+
+        let dir = tempfile::tempdir().unwrap();
+        let src_file_path = dir.path().join(SRC_FILENAME);
+        let mut src_file = File::options()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(src_file_path)
+            .unwrap();
+
+        const SRC_CONTENTS: &str = "I'm a Barbie girl in a Barbie world.";
+        let res = src_file.write_all(SRC_CONTENTS.as_bytes());
+        assert!(res.is_ok());
+
+        let rewind_res = src_file.rewind();
+        assert!(rewind_res.is_ok());
+
+        let password = String::from("Shake shake shake, Signora! Shake your body line.");
+
+        let res = EncryptionTask::new(src_file, password.into_bytes());
+        assert!(res.is_ok());
+
+        let mut task = res.unwrap();
+
+        let mut task_src_file_contents: String = String::from("");
+        let res = task.src_file.read_to_string(&mut task_src_file_contents);
+        assert!(res.is_ok());
+
+        assert_eq!(SRC_CONTENTS, task_src_file_contents.trim());
+        assert!(!task.password.is_empty());
+        assert!(!task.salt.is_empty());
+        assert!(!task.nonce.is_empty());
+        assert_eq!(task.buffer_len, IO_BUFFER_LEN);
+    }
+
+    #[test]
+    fn test_creating_new_encryption_task_with_short_password_fails() {
+        const SRC_FILENAME: &str = "some-test.txt";
+
+        let dir = tempfile::tempdir().unwrap();
+        let src_file_path = dir.path().join(SRC_FILENAME);
+        let src_file = File::create(src_file_path).unwrap();
+        let password = String::from("short");
+
+        let res = EncryptionTask::new(src_file, password.into_bytes());
+        assert!(res.is_err());
+    }
+}
