@@ -1,4 +1,5 @@
 use filename::file_name;
+use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fmt::{Display, Formatter};
@@ -7,13 +8,15 @@ use std::io::{Read, Seek, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use once_cell::sync::Lazy;
 
-use rand::{rngs::OsRng, RngCore};
 use rand::distributions::{Alphanumeric, DistString};
+use rand::{rngs::OsRng, RngCore};
 use uuid::Uuid;
 
-use crate::crypto::{decrypt_from_ssef_file, encrypt_to_ssef_file, AES256GCMNonce, IO_BUFFER_LEN, SALT_LENGTH, MINIMUM_PASSWORD_LENGTH};
+use crate::crypto::{
+    decrypt_from_ssef_file, encrypt_to_ssef_file, AES256GCMNonce, IO_BUFFER_LEN,
+    MINIMUM_PASSWORD_LENGTH, SALT_LENGTH,
+};
 use crate::ds::{FIFOQueue, Queue};
 use crate::errors::{Error, Result};
 
@@ -76,7 +79,7 @@ impl TaskManager {
         let task_statuses = self.task_statuses.lock().unwrap();
         match task_statuses.get(&id) {
             Some(status) => Some(status.clone()),
-            None => None
+            None => None,
         }
     }
 
@@ -113,7 +116,9 @@ impl EncryptionTask {
             return Err(Error::InvalidPasswordLengthError);
         }
 
-        let salt = Alphanumeric.sample_string(&mut rand::thread_rng(), SALT_LENGTH).into_bytes();
+        let salt = Alphanumeric
+            .sample_string(&mut rand::thread_rng(), SALT_LENGTH)
+            .into_bytes();
         let mut nonce = AES256GCMNonce::default();
         OsRng.fill_bytes(&mut nonce);
 
@@ -349,7 +354,7 @@ pub enum TaskProgress {
     QUEUED,
     RUNNING,
     DONE,
-    FAILED
+    FAILED,
 }
 
 #[cfg(test)]
@@ -361,10 +366,10 @@ pub enum TestTaskType {
 
 #[cfg(test)]
 mod tests {
-    use std::fs::File;
-    use std::io::{Read, Seek, Write};
     use crate::crypto::IO_BUFFER_LEN;
     use crate::tasks::EncryptionTask;
+    use std::fs::File;
+    use std::io::{Read, Seek, Write};
 
     #[test]
     fn test_creating_new_encryption_task_properly_works_successfully() {

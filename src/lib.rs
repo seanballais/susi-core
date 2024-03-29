@@ -8,6 +8,7 @@ mod tasks;
 mod workers;
 
 pub fn init_core_systems() {
+    logging::init_thread_local_logging();
     tasks::init_task_manager();
     workers::init_worker_pool();
 }

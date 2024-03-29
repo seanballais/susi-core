@@ -21,7 +21,7 @@ thread_local! {
 #[no_mangle]
 pub unsafe extern "C" fn get_last_error_message(buffer: *mut c_char, length: c_int) -> c_int {
     if buffer.is_null() {
-        logging::warning!("Null pointer passed into get_last_error_message() as the buffer");
+        tracing::warn!("Null pointer passed into get_last_error_message() as the buffer");
 
         return -1;
     }
@@ -35,8 +35,8 @@ pub unsafe extern "C" fn get_last_error_message(buffer: *mut c_char, length: c_i
     let buffer = from_raw_parts_mut(buffer as *mut u8, length as usize);
 
     if error_message.len() >= buffer.len() {
-        logging::warning!("Buffer provided for writing the last error message is too small");
-        logging::warning!(
+        tracing::warn!("Buffer provided for writing the last error message is too small");
+        tracing::warn!(
             "Expected at least {} bytes, but got {}",
             error_message.len() + 1,
             buffer.len()
@@ -72,12 +72,12 @@ pub extern "C" fn has_error() -> bool {
 }
 
 pub fn update_last_error(err: errors::Error) {
-    logging::error!("Setting the last error: {}", err);
+    tracing::error!("Setting the last error: {}", err);
 
     // Log the causes of the error.
     let mut cause = err.source();
     while let Some(parent_err) = cause {
-        logging::warning!("Caused by: {}", parent_err);
+        tracing::warn!("Caused by: {}", parent_err);
         cause = parent_err.source();
     }
 

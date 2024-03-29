@@ -52,7 +52,7 @@ pub fn encrypt_to_ssef_file(
     should_stop: Option<Arc<AtomicBool>>,
 ) -> Result<()> {
     let src_file_name = filename::file_name(src_file).unwrap_or_else(|e| {
-        logging::warning!(
+        tracing::warn!(
             "Unable to get the file name for a source file. Error: {}",
             e.to_string()
         );
@@ -60,7 +60,7 @@ pub fn encrypt_to_ssef_file(
         PathBuf::new()
     });
     let dest_file_name = filename::file_name(dest_file).unwrap_or_else(|e| {
-        logging::warning!(
+        tracing::warn!(
             "Unable to get the file name for a destination file. Error: {}",
             e.to_string()
         );
@@ -68,7 +68,7 @@ pub fn encrypt_to_ssef_file(
         PathBuf::new()
     });
 
-    logging::info!(
+    tracing::info!(
         "Encrypting file, {}, to {}",
         src_file_name.display(),
         dest_file_name.display()
@@ -113,7 +113,7 @@ pub fn decrypt_from_ssef_file(
     should_stop: Option<Arc<AtomicBool>>,
 ) -> Result<()> {
     let src_file_name = filename::file_name(src_file).unwrap_or_else(|e| {
-        logging::warning!(
+        tracing::warn!(
             "Unable to get the file name for a source file. Error: {}",
             e.to_string()
         );
@@ -121,7 +121,7 @@ pub fn decrypt_from_ssef_file(
         PathBuf::new()
     });
     let dest_file_name = filename::file_name(dest_file).unwrap_or_else(|e| {
-        logging::warning!(
+        tracing::warn!(
             "Unable to get the file name for a destination file. Error: {}",
             e.to_string()
         );
@@ -129,7 +129,7 @@ pub fn decrypt_from_ssef_file(
         PathBuf::new()
     });
 
-    logging::info!(
+    tracing::info!(
         "Decrypting file, {}, to {}",
         src_file_name.display(),
         dest_file_name.display()
@@ -166,7 +166,7 @@ pub fn decrypt_from_ssef_file(
 }
 
 pub fn create_key_from_password(password: &[u8], salt: &[u8]) -> Result<SusiKey> {
-    logging::info!("Creating key from password and salt");
+    tracing::info!("Creating key from password and salt");
 
     if password.len() < MINIMUM_PASSWORD_LENGTH {
         return Err(Error::InvalidPasswordLengthError);
@@ -196,7 +196,7 @@ fn encrypt_file(
     let mut buffer = vec![0u8; *buffer_len];
 
     let src_file_name = filename::file_name(src_file).unwrap_or_else(|e| {
-        logging::warning!(
+        tracing::warn!(
             "Unable to get the file name for a source file. Error: {}",
             e.to_string()
         );
@@ -204,7 +204,7 @@ fn encrypt_file(
         PathBuf::new()
     });
     let dest_file_name = filename::file_name(dest_file).unwrap_or_else(|e| {
-        logging::warning!(
+        tracing::warn!(
             "Unable to get the file name for a destination file. Error: {}",
             e.to_string()
         );
@@ -212,7 +212,7 @@ fn encrypt_file(
         PathBuf::new()
     });
 
-    logging::info!(
+    tracing::info!(
         "Encrypting data from {} to {}",
         src_file_name.display(),
         dest_file_name.display()
@@ -220,7 +220,7 @@ fn encrypt_file(
 
     loop {
         if let Some(ref should_stop) = should_stop {
-            if should_stop.load(atomic::Ordering::Relaxed) {
+            if should_stop.load(Ordering::Relaxed) {
                 return Err(Error::TaskTerminatedError);
             }
         }
@@ -230,7 +230,7 @@ fn encrypt_file(
             .map_err(|e| Error::IOError(src_file_name.clone(), Arc::from(e)))?;
 
         if let Some(ref num_bytes) = num_read_bytes {
-            num_bytes.fetch_add(read_count, atomic::Ordering::Relaxed);
+            num_bytes.fetch_add(read_count, Ordering::Relaxed);
         }
 
         if read_count == 0 {
@@ -243,7 +243,7 @@ fn encrypt_file(
                 .map_err(|e| Error::IOError(dest_file_name.clone(), Arc::from(e)))?;
 
             if let Some(ref num_bytes) = num_written_bytes {
-                num_bytes.fetch_add(write_count, atomic::Ordering::Relaxed);
+                num_bytes.fetch_add(write_count, Ordering::Relaxed);
             }
         } else {
             let encrypted = stream_encryptor.encrypt_last(&buffer[..read_count])?;
@@ -252,7 +252,7 @@ fn encrypt_file(
                 .map_err(|e| Error::IOError(dest_file_name.clone(), Arc::from(e)))?;
 
             if let Some(ref num_bytes) = num_written_bytes {
-                num_bytes.fetch_add(write_count, atomic::Ordering::Relaxed);
+                num_bytes.fetch_add(write_count, Ordering::Relaxed);
             }
 
             break;
@@ -278,7 +278,7 @@ fn decrypt_file(
     let mut buffer = vec![0u8; *buffer_len];
 
     let src_file_name = filename::file_name(src_file).unwrap_or_else(|e| {
-        logging::warning!(
+        tracing::warn!(
             "Unable to get the file name for a source file. Error: {}",
             e.to_string()
         );
@@ -286,7 +286,7 @@ fn decrypt_file(
         PathBuf::new()
     });
     let dest_file_name = filename::file_name(dest_file).unwrap_or_else(|e| {
-        logging::warning!(
+        tracing::warn!(
             "Unable to get the file name for a destination file. Error: {}",
             e.to_string()
         );
@@ -294,7 +294,7 @@ fn decrypt_file(
         PathBuf::new()
     });
 
-    logging::info!(
+    tracing::info!(
         "Decrypting data from {} to {}",
         src_file_name.display(),
         dest_file_name.display()
@@ -302,7 +302,7 @@ fn decrypt_file(
 
     loop {
         if let Some(ref should_stop) = should_stop {
-            if should_stop.load(atomic::Ordering::Relaxed) {
+            if should_stop.load(Ordering::Relaxed) {
                 return Err(Error::TaskTerminatedError);
             }
         }
@@ -324,7 +324,7 @@ fn decrypt_file(
                 .map_err(|e| Error::IOError(dest_file_name.clone(), Arc::from(e)))?;
 
             if let Some(ref num_bytes) = num_written_bytes {
-                num_bytes.fetch_add(write_count, atomic::Ordering::Relaxed);
+                num_bytes.fetch_add(write_count, Ordering::Relaxed);
             }
         } else {
             let decrypted = stream_decryptor.decrypt_last(&buffer[..read_count])?;
@@ -333,7 +333,7 @@ fn decrypt_file(
                 .map_err(|e| Error::IOError(dest_file_name.clone(), Arc::from(e)))?;
 
             if let Some(num_bytes) = num_written_bytes {
-                num_bytes.fetch_add(write_count, atomic::Ordering::Relaxed);
+                num_bytes.fetch_add(write_count, Ordering::Relaxed);
             }
 
             break;

@@ -1,4 +1,6 @@
 use crate::init_core_systems;
+use std::fs::File;
+use std::io::Write;
 
 pub mod errors;
 mod tasks;
@@ -7,5 +9,5 @@ mod tasks;
 pub extern "C" fn init_susi_core() {
     init_core_systems();
 
-    crate::logging::info!("Finished initializing core systems");
+    tracing::info!("Finished initializing core systems");
 }
