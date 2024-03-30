@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use crate::errors::Error;
 use crate::ffi::errors::update_last_error;
+use crate::logging;
 use crate::tasks::{TaskID, TASK_MANAGER};
 
 /// Returns the value in a Result, or causes the function to return `ret_val`.
@@ -50,7 +51,10 @@ pub extern "C" fn queue_encryption_task(
     );
 
     match TASK_MANAGER.queue_encryption_task(src_file, password_string.into_bytes()) {
-        Ok(task_id) => Box::into_raw(Box::new(task_id)),
+        Ok(task_id) => {
+            logging::info!("Task (ID: {}) queued", task_id.clone());
+            Box::into_raw(Box::new(task_id))
+        },
         Err(e) => {
             update_last_error(e);
 

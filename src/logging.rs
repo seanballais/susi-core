@@ -11,21 +11,38 @@ use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::FmtSubscriber;
 
 thread_local! {
-    static THREAD_LOGGING_VARS: RefCell<Option<(Dispatch, WorkerGuard)>> = RefCell::new(None);
-    static THREAD_LOGGING_INIT_ERROR: RefCell<Option<Error>> = RefCell::new(None);
+    pub static THREAD_LOGGING_VARS: RefCell<Option<(Dispatch, WorkerGuard)>> = RefCell::new(None);
+    pub static THREAD_LOGGING_INIT_ERROR: RefCell<Option<Error>> = RefCell::new(None);
 }
 
-macro_rules! info {
+macro_rules! log {
     ($($x: tt)*) => {
-        THREAD_LOGGING_VARS.with(|vars| {
+        crate::logging::THREAD_LOGGING_VARS.with(|vars| {
             if let Some((dispatch, _guard)) = vars.borrow().as_ref() {
-                with_default(&dispatch, || {
-                    tracing::info!($($x)*);
+                tracing::dispatcher::with_default(&dispatch, || {
+                    tracing::event!($($x)*);
                 });
             }
         });
     };
 }
+
+macro_rules! info {
+    ($($x: tt)*) => { crate::logging::log!(tracing::Level::INFO, $($x)*); };
+}
+
+macro_rules! warning {
+    ($($x: tt)*) => { crate::logging::log!(tracing::Level::WARN, $($x)*); };
+}
+
+macro_rules! error {
+    ($($x: tt)*) => { crate::logging::log!(tracing::Level::ERROR, $($x)*); };
+}
+
+pub(crate) use info;
+pub(crate) use warning;
+pub(crate) use error;
+pub(crate) use log;
 
 pub fn init_thread_local_logging() {
     let log_dir = match get_logging_directory() {
@@ -58,8 +75,6 @@ pub fn init_thread_local_logging() {
         .finish();
 
     update_logging_variables(Some((Dispatch::new(subscriber), guard)), None);
-
-    info!("Testing if the logging works.");
 }
 
 fn get_logging_directory() -> Result<PathBuf> {

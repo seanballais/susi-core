@@ -52,7 +52,7 @@ impl Worker {
         let thread = thread::spawn(move || {
             tracing::span!(Level::INFO, "worker_thread", worker_id = id);
             loop {
-                tracing::info!("Thread {} is getting a task", id);
+                logging::info!("Thread {} is getting a task", id);
                 let mut task = TASK_MANAGER.pop_task();
                 let task_status_ptr = TASK_MANAGER.get_task_status(task.get_id()).unwrap();
                 let mut task_status = task_status_ptr.lock().unwrap();
@@ -63,7 +63,7 @@ impl Worker {
 
                 task_status.set_progress(TaskProgress::RUNNING);
 
-                tracing::info!("Thread {} running task {}", id, task.get_id());
+                logging::info!("Thread {} running task {}", id, task.get_id());
                 let res = task.run(
                     Some(num_read_bytes.clone()),
                     Some(num_written_bytes.clone()),
