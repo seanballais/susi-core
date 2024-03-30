@@ -53,7 +53,10 @@ impl Worker {
             tracing::span!(Level::INFO, "worker_thread", worker_id = id);
             loop {
                 logging::info!("Thread {} is getting a task", id);
-                let mut task = TASK_MANAGER.pop_task();
+                let mut task = match TASK_MANAGER.pop_task() {
+                    Some(t) => t,
+                    None => { continue; }
+                };
                 let task_status_ptr = TASK_MANAGER.get_task_status(task.get_id()).unwrap();
                 let mut task_status = task_status_ptr.lock().unwrap();
 
