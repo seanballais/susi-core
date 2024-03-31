@@ -1,6 +1,6 @@
+use crate::ds::{FIFOQueue, Queue};
 use std::fs::File;
 use std::io::Write;
-use crate::ds::{FIFOQueue, Queue};
 use std::num::NonZeroUsize;
 use std::sync::mpsc::TryRecvError;
 use std::sync::{Mutex, OnceLock};
@@ -28,7 +28,7 @@ pub fn init_worker_pool() {
 #[derive(Debug, Copy, Clone)]
 enum WorkerMessage {
     NONE,
-    TERMINATE
+    TERMINATE,
 }
 
 // Based on: https://web.mit.edu/rust-lang_v1.25/arch/
@@ -38,7 +38,7 @@ enum WorkerMessage {
 #[derive(Debug)]
 pub struct WorkerPool {
     workers: Vec<Worker>,
-    bus: Bus<WorkerMessage>
+    bus: Bus<WorkerMessage>,
 }
 
 impl WorkerPool {
@@ -70,7 +70,7 @@ impl WorkerPool {
 #[derive(Debug)]
 struct Worker {
     id: u32,
-    thread: thread::JoinHandle<()>
+    thread: thread::JoinHandle<()>,
 }
 
 impl Worker {
@@ -88,10 +88,12 @@ impl Worker {
                     Err(_) => {}
                 }
 
-                logging::info!("Thread {} is getting a task", id);
+                tracing::info!("Thread {} is getting a task", id);
                 let mut task = match TASK_MANAGER.pop_task() {
                     Some(t) => t,
-                    None => { continue; }
+                    None => {
+                        continue;
+                    }
                 };
                 let task_status_ptr = TASK_MANAGER.get_task_status(task.get_id()).unwrap();
                 let mut task_status = task_status_ptr.lock().unwrap();
@@ -102,7 +104,7 @@ impl Worker {
 
                 task_status.set_progress(TaskProgress::RUNNING);
 
-                logging::info!("Thread {} running task {}", id, task.get_id());
+                tracing::info!("Thread {} running task {}", id, task.get_id());
                 let res = task.run(
                     Some(num_read_bytes.clone()),
                     Some(num_written_bytes.clone()),

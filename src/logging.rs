@@ -10,48 +10,21 @@ use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::FmtSubscriber;
 
-thread_local! {
-    pub static THREAD_LOGGING_VARS: RefCell<Option<(Dispatch, WorkerGuard)>> = RefCell::new(None);
-    pub static THREAD_LOGGING_INIT_ERROR: RefCell<Option<Error>> = RefCell::new(None);
+pub struct LoggingGuard {
+    guard: WorkerGuard,
 }
 
-macro_rules! log {
-    ($($x: tt)*) => {
-        crate::logging::THREAD_LOGGING_VARS.with(|vars| {
-            if let Some((dispatch, _guard)) = vars.borrow().as_ref() {
-                tracing::dispatcher::with_default(&dispatch, || {
-                    tracing::event!($($x)*);
-                });
-            }
-        });
-    };
+impl LoggingGuard {
+    pub fn new(guard: WorkerGuard) -> Self {
+        Self { guard }
+    }
 }
 
-macro_rules! info {
-    ($($x: tt)*) => { crate::logging::log!(tracing::Level::INFO, $($x)*); };
-}
-
-macro_rules! warning {
-    ($($x: tt)*) => { crate::logging::log!(tracing::Level::WARN, $($x)*); };
-}
-
-macro_rules! error {
-    ($($x: tt)*) => { crate::logging::log!(tracing::Level::ERROR, $($x)*); };
-}
-
-pub(crate) use info;
-pub(crate) use warning;
-pub(crate) use error;
-pub(crate) use log;
-
-
-
-pub fn init_thread_local_logging() {
+pub fn init_logging() -> Result<LoggingGuard> {
     let log_dir = match get_logging_directory() {
         Ok(dir) => dir,
         Err(e) => {
-            update_logging_variables(None, Some(e));
-            return;
+            return Err(e);
         }
     };
 
@@ -63,20 +36,26 @@ pub fn init_thread_local_logging() {
     let file_appender = match file_appender_res {
         Ok(appender) => appender,
         Err(_) => {
-            let error = Error::LoggingError(String::from("Unable to initialize logging"));
-            update_logging_variables(None, Some(error));
-            return;
+            return Err(Error::LoggingError(String::from(
+                "Unable to initialize logging file appender",
+            )));
         }
     };
 
     let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
-    let subscriber = FmtSubscriber::builder()
+    let res = tracing_subscriber::fmt()
         .with_max_level(Level::INFO)
         .with_writer(non_blocking)
         .with_ansi(false)
-        .finish();
-
-    update_logging_variables(Some((Dispatch::new(subscriber), guard)), None);
+        .try_init();
+    match res {
+        Ok(_) => Ok(LoggingGuard::new(guard)),
+        Err(e) => {
+            Err(Error::LoggingError(String::from(
+                "Unable to initialize logging. Make sure logging is not being reinitialized",
+            )))
+        }
+    }
 }
 
 fn get_logging_directory() -> Result<PathBuf> {
@@ -101,14 +80,4 @@ fn get_logging_directory() -> Result<PathBuf> {
     }
 
     Ok(base_log_dir)
-}
-
-#[inline(always)]
-fn update_logging_variables(logging_vars: Option<(Dispatch, WorkerGuard)>, error: Option<Error>) {
-    THREAD_LOGGING_VARS.with_borrow_mut(|vars| {
-            *vars = logging_vars;
-    });
-    THREAD_LOGGING_INIT_ERROR.with_borrow_mut(|error_var| {
-            *error_var = error;
-    });
 }

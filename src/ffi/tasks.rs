@@ -52,9 +52,9 @@ pub extern "C" fn queue_encryption_task(
 
     match TASK_MANAGER.queue_encryption_task(src_file, password_string.into_bytes()) {
         Ok(task_id) => {
-            logging::info!("Task (ID: {}) queued", task_id.clone());
+            tracing::info!("Task (ID: {}) queued", task_id.clone());
             Box::into_raw(Box::new(task_id))
-        },
+        }
         Err(e) => {
             update_last_error(e);
 

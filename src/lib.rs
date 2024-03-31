@@ -12,7 +12,6 @@ mod tasks;
 mod workers;
 
 pub fn init_core_systems() {
-    logging::init_thread_local_logging();
     tasks::init_task_manager();
 
     // Update this panic hook later on.
