@@ -14,8 +14,8 @@ mod workers;
 pub fn init_core_systems() {
     logging::init_thread_local_logging();
     tasks::init_task_manager();
-    workers::init_worker_pool();
 
+    // Update this panic hook later on.
     let orig_panic_hook = panic::take_hook();
     panic::set_hook(Box::new(move |panic_info| {
         orig_panic_hook(panic_info);
@@ -26,6 +26,7 @@ pub fn init_core_systems() {
             .open("C:/Users/sean/AppData/Local/Susi/logs/panic.log")
             .unwrap();
         let backtrace = std::backtrace::Backtrace::force_capture();
-        file.write_all(backtrace.to_string().as_bytes()).unwrap()
+        file.write_all(panic_info.to_string().as_bytes()).unwrap();
+        file.write_all(backtrace.to_string().as_bytes()).unwrap();
     }))
 }

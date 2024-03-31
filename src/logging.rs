@@ -44,6 +44,8 @@ pub(crate) use warning;
 pub(crate) use error;
 pub(crate) use log;
 
+
+
 pub fn init_thread_local_logging() {
     let log_dir = match get_logging_directory() {
         Ok(dir) => dir,
@@ -104,9 +106,9 @@ fn get_logging_directory() -> Result<PathBuf> {
 #[inline(always)]
 fn update_logging_variables(logging_vars: Option<(Dispatch, WorkerGuard)>, error: Option<Error>) {
     THREAD_LOGGING_VARS.with_borrow_mut(|vars| {
-        *vars = logging_vars;
+            *vars = logging_vars;
     });
     THREAD_LOGGING_INIT_ERROR.with_borrow_mut(|error_var| {
-        *error_var = error;
+            *error_var = error;
     });
 }
