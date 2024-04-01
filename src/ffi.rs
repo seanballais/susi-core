@@ -3,7 +3,6 @@ use std::fs::File;
 use std::io::Write;
 
 pub mod errors;
-mod logging;
 mod tasks;
 mod workers;
 

@@ -75,6 +75,7 @@ struct Worker {
 
 impl Worker {
     pub fn new(id: u32, mut bus_receiver: BusReader<WorkerMessage>) -> Self {
+        tracing::info!("Creating new worker (ID: {})", id);
         let thread = thread::spawn(move || {
             tracing::span!(Level::INFO, "worker_thread", worker_id = id);
             loop {
@@ -88,7 +89,6 @@ impl Worker {
                     Err(_) => {}
                 }
 
-                tracing::info!("Thread {} is getting a task", id);
                 let mut task = match TASK_MANAGER.pop_task() {
                     Some(t) => t,
                     None => {

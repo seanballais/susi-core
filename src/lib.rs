@@ -12,7 +12,9 @@ mod tasks;
 mod workers;
 
 pub fn init_core_systems() {
+    logging::init_logging();
     tasks::init_task_manager();
+    workers::init_worker_pool();
 
     // Update this panic hook later on.
     let orig_panic_hook = panic::take_hook();

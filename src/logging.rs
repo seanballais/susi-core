@@ -1,30 +1,24 @@
 use crate::errors::{Error, Result};
-use std::cell::RefCell;
+use crate::ffi::errors::update_last_error;
 use std::env;
-use std::fs::File;
-use std::io::Write;
 use std::path::PathBuf;
-use tracing::dispatcher::with_default;
-use tracing::{Dispatch, Level};
+use std::sync::OnceLock;
+use tracing::Level;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
-use tracing_subscriber::FmtSubscriber;
 
-pub struct LoggingGuard {
-    guard: WorkerGuard,
-}
+pub static LOGGING_GUARD: OnceLock<WorkerGuard> = OnceLock::new();
 
-impl LoggingGuard {
-    pub fn new(guard: WorkerGuard) -> Self {
-        Self { guard }
-    }
-}
-
-pub fn init_logging() -> Result<LoggingGuard> {
+pub fn init_logging() {
     let log_dir = match get_logging_directory() {
         Ok(dir) => dir,
         Err(e) => {
-            return Err(e);
+            println!(
+                "WARNING: Unable to initialize logging. Error: {}",
+                e.to_string()
+            );
+            update_last_error(e);
+            return;
         }
     };
 
@@ -35,10 +29,14 @@ pub fn init_logging() -> Result<LoggingGuard> {
         .build(log_dir);
     let file_appender = match file_appender_res {
         Ok(appender) => appender,
-        Err(_) => {
-            return Err(Error::LoggingError(String::from(
-                "Unable to initialize logging file appender",
-            )));
+        Err(e) => {
+            let msg = format!(
+                "Unable to initialize log appender. Error: {}",
+                e.to_string()
+            );
+            println!("WARNING! {}", msg);
+            update_last_error(Error::LoggingError(msg));
+            return;
         }
     };
 
@@ -49,11 +47,17 @@ pub fn init_logging() -> Result<LoggingGuard> {
         .with_ansi(false)
         .try_init();
     match res {
-        Ok(_) => Ok(LoggingGuard::new(guard)),
+        Ok(_) => {
+            LOGGING_GUARD.get_or_init(|| guard);
+        }
         Err(e) => {
-            Err(Error::LoggingError(String::from(
-                "Unable to initialize logging. Make sure logging is not being reinitialized",
-            )))
+            let msg = format!(
+                "Unable to initialize logging. Make sure logging is not being reinitialized. Error: {}",
+                e.to_string()
+            );
+            println!("WARNING! {}", msg);
+            update_last_error(Error::LoggingError(String::from(msg)));
+            return;
         }
     }
 }
