@@ -71,7 +71,7 @@ impl TaskManager {
         Ok(task_id.clone())
     }
 
-    pub fn pop_task(&self) -> Option<TaskObject> {
+    pub fn pop_task(&self) -> TaskObject {
         self.task_queue.pop()
     }
 

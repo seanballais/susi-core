@@ -6,7 +6,7 @@ pub trait Queue<T> {
     fn new() -> Self;
     fn with_capacity(size: usize) -> Self;
     fn push(&self, value: T);
-    fn pop(&self) -> Option<T>;
+    fn pop(&self) -> T;
     fn len(&self) -> usize;
     fn is_empty(&self) -> bool;
 }
@@ -42,15 +42,15 @@ impl<T> Queue<T> for FIFOQueue<T> {
     }
 
     // Popping will wait if the queue is empty.
-    fn pop(&self) -> Option<T> {
+    fn pop(&self) -> T {
         // We're unwrapping here since the world might already in a bad state when our mutex lock
         // is poisoned. Same case for our Condvar.
         let mut data = self.data.lock().unwrap();
-        if data.is_empty() {
-            None
-        } else {
-            Some(data.pop_front().unwrap())
+        while data.is_empty() {
+            data = self.cond_var.wait(data).unwrap();
         }
+
+        data.pop_front().unwrap()
     }
 
     fn len(&self) -> usize {
@@ -85,10 +85,28 @@ mod tests {
         t1.join().unwrap();
 
         assert_eq!(queue.len(), 2);
-        assert_eq!(queue.pop(), Some(1));
-        assert_eq!(queue.pop(), Some(2));
-        assert_eq!(queue.pop(), None);
+        assert_eq!(queue.pop(), 1);
+        assert_eq!(queue.pop(), 2);
         assert!(queue.is_empty());
+
+        let q2 = queue.clone();
+        let t2 = std::thread::spawn(move || {
+            q2.push(q2.pop()); // The pop should be blocked at this point since the queue is empty.
+            q2.push(3);
+        });
+
+        let q3 = queue.clone();
+        let t3 = std::thread::spawn(move || {
+            // After this one, t2 should be unblocked, and will then be able to push.
+            q3.push(4);
+        });
+
+        t2.join().unwrap();
+        t3.join().unwrap();
+
+        assert_eq!(queue.len(), 2);
+        assert_eq!(queue.pop(), 4);
+        assert_eq!(queue.pop(), 3);
     }
 
     #[test]
@@ -104,9 +122,27 @@ mod tests {
         t1.join().unwrap();
 
         assert_eq!(queue.len(), 2);
-        assert_eq!(queue.pop(), Some(1));
-        assert_eq!(queue.pop(), Some(2));
-        assert_eq!(queue.pop(), None);
+        assert_eq!(queue.pop(), 1);
+        assert_eq!(queue.pop(), 2);
         assert!(queue.is_empty());
+
+        let q2 = queue.clone();
+        let t2 = std::thread::spawn(move || {
+            q2.push(q2.pop()); // The pop should be blocked at this point since the queue is empty.
+            q2.push(3);
+        });
+
+        let q3 = queue.clone();
+        let t3 = std::thread::spawn(move || {
+            // After this one, t2 should be unblocked, and will then be able to push.
+            q3.push(4);
+        });
+
+        t2.join().unwrap();
+        t3.join().unwrap();
+
+        assert_eq!(queue.len(), 2);
+        assert_eq!(queue.pop(), 4);
+        assert_eq!(queue.pop(), 3);
     }
 }

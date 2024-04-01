@@ -4,7 +4,6 @@ use std::io::Write;
 
 pub mod errors;
 mod tasks;
-mod workers;
 
 #[no_mangle]
 pub extern "C" fn init_susi_core() {

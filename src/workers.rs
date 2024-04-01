@@ -6,7 +6,6 @@ use std::sync::mpsc::TryRecvError;
 use std::sync::{Mutex, OnceLock};
 use std::thread;
 
-use bus::{Bus, BusReader};
 use once_cell::sync::Lazy;
 use tracing::Level;
 
@@ -25,46 +24,29 @@ pub fn init_worker_pool() {
     WORKER_POOL.lock().unwrap().kick_start();
 }
 
-#[derive(Debug, Copy, Clone)]
-enum WorkerMessage {
-    NONE,
-    TERMINATE,
-}
-
 // Based on: https://web.mit.edu/rust-lang_v1.25/arch/
 //                   amd64_ubuntu1404/share/doc/rust/
 //                   html/book/second-edition/
 //                   ch20-03-designing-the-interface.html
 #[derive(Debug)]
 pub struct WorkerPool {
-    workers: Vec<Worker>,
-    bus: Bus<WorkerMessage>,
+    workers: Vec<Worker>
 }
 
 impl WorkerPool {
     pub fn new(num_workers: usize) -> Self {
         assert!(num_workers > 0);
 
-        let mut bus = Bus::new(5);
-
         let mut workers = Vec::with_capacity(num_workers);
         for id in 0..num_workers {
-            workers.push(Worker::new(id as u32, bus.add_rx()));
+            workers.push(Worker::new(id as u32));
         }
 
-        Self { workers, bus }
+        Self { workers }
     }
 
     // The WorkerPool is loaded in lazily, so this function is used to initialize it.
     pub fn kick_start(&self) {}
-
-    pub fn close(&mut self) {
-        self.bus.broadcast(WorkerMessage::TERMINATE);
-
-        while let Some(worker) = self.workers.pop() {
-            worker.thread.join().unwrap();
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -74,27 +56,12 @@ struct Worker {
 }
 
 impl Worker {
-    pub fn new(id: u32, mut bus_receiver: BusReader<WorkerMessage>) -> Self {
+    pub fn new(id: u32) -> Self {
         tracing::info!("Creating new worker (ID: {})", id);
         let thread = thread::spawn(move || {
             tracing::span!(Level::INFO, "worker_thread", worker_id = id);
             loop {
-                match bus_receiver.try_recv() {
-                    Ok(message) => {
-                        match message {
-                            WorkerMessage::TERMINATE => break,
-                            WorkerMessage::NONE => {}
-                        };
-                    }
-                    Err(_) => {}
-                }
-
-                let mut task = match TASK_MANAGER.pop_task() {
-                    Some(t) => t,
-                    None => {
-                        continue;
-                    }
-                };
+                let mut task = TASK_MANAGER.pop_task();
                 let task_status_ptr = TASK_MANAGER.get_task_status(task.get_id()).unwrap();
                 let mut task_status = task_status_ptr.lock().unwrap();
 
