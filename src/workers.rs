@@ -30,7 +30,7 @@ pub fn init_worker_pool() {
 //                   ch20-03-designing-the-interface.html
 #[derive(Debug)]
 pub struct WorkerPool {
-    workers: Vec<Worker>
+    workers: Vec<Worker>,
 }
 
 impl WorkerPool {

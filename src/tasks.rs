@@ -1,9 +1,7 @@
 use filename::file_name;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
-use std::ffi::OsString;
 use std::fmt::{Display, Formatter};
-use std::fs::File;
 use std::io::{Read, Seek, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -19,6 +17,7 @@ use crate::crypto::{
 };
 use crate::ds::{FIFOQueue, Queue};
 use crate::errors::{Error, Result};
+use crate::fs::{append_file_extension_to_path, File, FileAccessOptions};
 
 pub type TaskObject = Box<dyn Task + Send>;
 pub type TaskFIFOQueue = FIFOQueue<TaskObject>;
@@ -151,7 +150,7 @@ impl Task for EncryptionTask {
         let should_stop_copy = should_stop.clone();
 
         encrypt_to_ssef_file(
-            &mut self.src_file,
+            self.src_file.get_file_mut(),
             &mut temp_dest_file,
             self.password.as_slice(),
             self.salt.as_slice(),
@@ -173,20 +172,9 @@ impl Task for EncryptionTask {
                                   // file's cursor earlier.
 
         let file_name =
-            file_name(&self.src_file).map_err(|e| Error::IOError(PathBuf::new(), Arc::new(e)))?;
-        let src_file_ext = OsString::from(file_name.extension().unwrap_or_else(|| "".as_ref()));
-        let mut dest_file_ext = src_file_ext.clone();
-        dest_file_ext.push(".ssef");
-
-        let mut dest_file_path = file_name.clone();
-        dest_file_path.set_extension(dest_file_ext);
-
-        let mut dest_file = File::options()
-            .write(true)
-            .truncate(true)
-            .create(true)
-            .open(dest_file_path.clone())
-            .map_err(|e| Error::IOError(PathBuf::new(), Arc::new(e)))?;
+            file_name(self.src_file.get_file()).map_err(|e| Error::IOError(PathBuf::new(), Arc::new(e)))?;
+        let dest_file_path = append_file_extension_to_path(file_name.as_path(), "ssef");
+        let mut dest_file = File::open(dest_file_path.clone(), FileAccessOptions::TruncateCreate)?;
 
         // No progress notification here yet, but this should provide the foundation.
         let mut buffer = [0u8; IO_BUFFER_LEN];
@@ -198,6 +186,7 @@ impl Task for EncryptionTask {
                 break;
             } else {
                 dest_file
+                    .get_file_mut()
                     .write(&buffer[0..read_count])
                     .map_err(|e| Error::IOError(dest_file_path.clone(), Arc::from(e)))?;
             }
@@ -245,8 +234,8 @@ impl Task for DecryptionTask {
         should_stop: Option<Arc<AtomicBool>>,
     ) -> Result<()> {
         decrypt_from_ssef_file(
-            &mut self.src_file,
-            &mut self.dest_file,
+            self.src_file.get_file_mut(),
+            self.dest_file.get_file_mut(),
             self.password.as_slice(),
             &self.buffer_len,
             num_read_bytes,
@@ -368,8 +357,8 @@ pub enum TestTaskType {
 mod tests {
     use crate::crypto::IO_BUFFER_LEN;
     use crate::tasks::EncryptionTask;
-    use std::fs::File;
     use std::io::{Read, Seek, Write};
+    use crate::fs::{File, FileAccessOptions};
 
     #[test]
     fn test_creating_new_encryption_task_properly_works_successfully() {
@@ -377,18 +366,13 @@ mod tests {
 
         let dir = tempfile::tempdir().unwrap();
         let src_file_path = dir.path().join(SRC_FILENAME);
-        let mut src_file = File::options()
-            .read(true)
-            .write(true)
-            .create(true)
-            .open(src_file_path)
-            .unwrap();
+        let mut src_file = File::open(src_file_path.clone(), FileAccessOptions::ReadWriteCreate).unwrap();
 
         const SRC_CONTENTS: &str = "I'm a Barbie girl in a Barbie world.";
-        let res = src_file.write_all(SRC_CONTENTS.as_bytes());
+        let res = src_file.get_file_mut().write_all(SRC_CONTENTS.as_bytes());
         assert!(res.is_ok());
 
-        let rewind_res = src_file.rewind();
+        let rewind_res = src_file.get_file_mut().rewind();
         assert!(rewind_res.is_ok());
 
         let password = String::from("Shake shake shake, Signora! Shake your body line.");
@@ -399,7 +383,7 @@ mod tests {
         let mut task = res.unwrap();
 
         let mut task_src_file_contents: String = String::from("");
-        let res = task.src_file.read_to_string(&mut task_src_file_contents);
+        let res = task.src_file.get_file().read_to_string(&mut task_src_file_contents);
         assert!(res.is_ok());
 
         assert_eq!(SRC_CONTENTS, task_src_file_contents.trim());
@@ -415,7 +399,7 @@ mod tests {
 
         let dir = tempfile::tempdir().unwrap();
         let src_file_path = dir.path().join(SRC_FILENAME);
-        let src_file = File::create(src_file_path).unwrap();
+        let src_file = File::open(src_file_path, FileAccessOptions::CreateOnly).unwrap();
         let password = String::from("short");
 
         let res = EncryptionTask::new(src_file, password.into_bytes());

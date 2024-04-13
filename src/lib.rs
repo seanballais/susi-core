@@ -6,6 +6,7 @@ mod crypto;
 mod ds;
 mod errors;
 mod ffi;
+mod fs;
 pub mod logging;
 mod metadata;
 mod tasks;
