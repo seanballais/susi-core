@@ -182,6 +182,39 @@ mod tests {
     }
 
     #[test]
+    fn test_file_open_read_truncate_create_no_preexisting_file_works_successfully() {
+        let path = create_test_file_path("test-file-read-write-create-npf.txt");
+
+        // We should get a new file after this point.
+        let mut file = File::open(path.clone(), FileAccessOptions::ReadTruncateCreate).unwrap();
+        let content = "chilling vibes with SimCity 3000";
+        let res = file.get_file_mut().write_all(content.as_bytes());
+        assert!(res.is_ok());
+
+        let mut read_content = String::new();
+        file.get_file_mut().rewind().unwrap();
+        file.get_file().read_to_string(&mut read_content).unwrap();
+        assert_eq!(read_content.as_str(), content);
+    }
+
+    #[test]
+    fn test_file_open_read_truncate_create_preexisting_file_works_successfully() {
+        let path = create_test_file_path("test-file-read-write-create-pf.txt");
+        let old_content = "bling bang bang, bling bang bang, bling bang bang bom";
+        create_test_file_with_content(path.clone(), old_content);
+
+        let mut file = File::open(path.clone(), FileAccessOptions::ReadTruncateCreate).unwrap();
+        let new_content = "i will be okay";
+        let res = file.get_file_mut().write_all(new_content.as_bytes());
+        assert!(res.is_ok());
+
+        let mut read_content = String::new();
+        file.get_file_mut().rewind().unwrap();
+        file.get_file().read_to_string(&mut read_content).unwrap();
+        assert_eq!(read_content.as_str(), new_content);
+    }
+
+    #[test]
     fn test_append_file_extension_to_path_ext_no_starting_period_works_successfully() {
         let test_path_str = "test/folder/some_file.png";
         let path = PathBuf::from(test_path_str);
