@@ -183,6 +183,7 @@ mod tests {
 
     #[test]
     fn test_file_open_read_truncate_create_no_preexisting_file_works_successfully() {
+        // If no file exists, then we just create it. It's as though we're just using ReadCreate.
         let path = create_test_file_path("test-file-read-write-create-npf.txt");
 
         // We should get a new file after this point.
@@ -199,6 +200,8 @@ mod tests {
 
     #[test]
     fn test_file_open_read_truncate_create_preexisting_file_works_successfully() {
+        // If a pre-existing file exists, it just gets truncated. It's as though we're just using
+        // ReadTruncate.
         let path = create_test_file_path("test-file-read-write-create-pf.txt");
         let old_content = "bling bang bang, bling bang bang, bling bang bang bom";
         create_test_file_with_content(path.clone(), old_content);
@@ -212,6 +215,32 @@ mod tests {
         file.get_file_mut().rewind().unwrap();
         file.get_file().read_to_string(&mut read_content).unwrap();
         assert_eq!(read_content.as_str(), new_content);
+    }
+
+    #[test]
+    fn test_file_open_write_only_works_successfully() {
+        // If a pre-existing file exists, it just gets truncated. It's as though we're just using
+        // ReadTruncate.
+        let path = create_test_file_path("test-file-write-only.txt");
+        let old_content = "bling bang bang, bling bang bang, bling bang bang bom";
+        create_test_file_with_content(path.clone(), old_content);
+
+        let mut file = File::open(path.clone(), FileAccessOptions::WriteOnly).unwrap();
+        let new_content = "baang";
+        let res = file.get_file_mut().write_all(new_content.as_bytes());
+        assert!(res.is_ok());
+
+        let mut _read_content = String::new();
+        file.get_file_mut().rewind().unwrap();
+        let res = file.get_file().read_to_string(&mut _read_content);
+        assert!(res.is_err());
+
+        // Just checking if we wrote correctly.
+        let mut file_with_read = File::open(path.clone(), FileAccessOptions::ReadOnly).unwrap();
+        let mut read_content = String::new();
+        let expected_content = "baang bang bang, bling bang bang, bling bang bang bom";
+        file_with_read.get_file().read_to_string(&mut read_content).unwrap();
+        assert_eq!(read_content.as_str(), expected_content);
     }
 
     #[test]
