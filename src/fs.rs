@@ -10,17 +10,18 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use crate::errors::Error::IOError;
 
+// Create and truncate access options only make sense when we're writing to them. So, we won't
+// combine any of them with read access. Creating and truncating files should be done via
+// appropriate methods.
 pub enum FileAccessOptions {
     ReadOnly,
     ReadWrite,
     ReadWriteCreate,
-    ReadTruncate,
-    ReadTruncateCreate,
+    ReadWriteCreateOrTruncate,
     WriteOnly,
     WriteCreate,
-    TruncateOnly,
-    TruncateCreate,
-    CreateOnly // Effectively same as WriteCreate, but the intent will be clearer with this.
+    WriteTruncate,
+    WriteCreateOrTruncate
 }
 
 // NOTE: There were prior attempts to let us use FileObj like a std::fs::File, but there was a snag
@@ -39,23 +40,28 @@ impl File {
             FileAccessOptions::ReadOnly => { options.read(true); },
             FileAccessOptions::ReadWrite => { options.read(true).write(true); },
             FileAccessOptions::ReadWriteCreate => { options.read(true).write(true).create(true); },
-            FileAccessOptions::ReadTruncate => { options.read(true).write(true).truncate(true); },
-            FileAccessOptions::ReadTruncateCreate => {
-                options.read(true).write(true).truncate(true).create(true);
-            },
+            FileAccessOptions::ReadWriteCreateOrTruncate => {
+                options.read(true).write(true).create(true).truncate(true);
+            }
             FileAccessOptions::WriteOnly => { options.write(true); },
             FileAccessOptions::WriteCreate => { options.write(true).create(true); },
-            FileAccessOptions::TruncateOnly => { options.write(true).truncate(true); },
-            FileAccessOptions::TruncateCreate => {
-                options.write(true).truncate(true).create(true);
-            },
-            FileAccessOptions::CreateOnly => { options.write(true).create(true); }
+            FileAccessOptions::WriteTruncate => { options.write(true).truncate(true); },
+            FileAccessOptions::WriteCreateOrTruncate => {
+                options.write(true).create(true).truncate(true);
+            }
         }
 
         let file_path = PathBuf::from(path.as_ref());
         match options.open(path.as_ref()) {
             Ok(f) => Ok(Self { file: f, path: file_path }),
             Err(e) => Err(IOError(file_path, Arc::new(e)))
+        }
+    }
+
+    pub fn touch<P: AsRef<Path>>(path: P) -> Result<()> {
+        match fs::File::create(path.as_ref().clone()) {
+            Ok(_) => Ok(()),
+            Err(e) => Err(IOError(PathBuf::from(path.as_ref().clone()), Arc::new(e)))
         }
     }
 
@@ -125,25 +131,45 @@ mod tests {
     use crate::fs::{append_file_extension_to_path, copy_file_contents, FileAccessOptions, File};
 
     #[test]
-    fn test_file_open_read_only_works_successfully() {
-        let path = create_test_file_path("test-file-read-only.txt");
-        create_test_file(path.clone());
+    fn test_file_open_read_only_preexisting_file_works_successfully() {
+        // Create the pre-existing file.
+        let path = create_test_file_path("test-file-read-only-pf.txt");
+        let content = "Kay Leni tayooo 🎵 Kaya tayong ipaglaban";
+        create_test_file_with_content(path.clone(), content);
 
+        // And read from it. It should succeed.
         let mut file = File::open(path.clone(), FileAccessOptions::ReadOnly).unwrap();
-        let res = file.get_file_mut().write_all("test".as_bytes());
+        let mut read_content = String::new();
+        let res = file.get_file().read_to_string(&mut read_content);
+        assert!(res.is_ok());
+        assert_eq!(read_content.as_str(), content);
+
+        // Attempt to write, but we're expecting it to fail.
+        let res = file.get_file_mut().write_all("Ang Pilipinas ay matatag".as_bytes());
         assert!(res.is_err());
     }
 
     #[test]
-    fn test_file_open_read_write_works_successfully() {
-        let path = create_test_file_path("test-file-read-write.txt");
+    fn test_file_open_read_only_no_preexisting_file_fails() {
+        // Try opening a non-existent file, which should fail.
+        let path = create_test_file_path("test-file-read-only-npf.txt");
+        let res = File::open(path.clone(), FileAccessOptions::ReadOnly);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_file_open_read_write_preexisting_file_works_successfully() {
+        // Create the "pre-existing" file.
+        let path = create_test_file_path("test-file-read-write-pf.txt");
         create_test_file(path.clone());
 
+        // Make sure we can write to it.
         let content = "bling bang bang, bling bang bang, bling bang bang bom";
         let mut file = File::open(path.clone(), FileAccessOptions::ReadWrite).unwrap();
         let res = file.get_file_mut().write_all(content.as_bytes());
         assert!(res.is_ok());
 
+        // And finally making sure we can read to it and ensuring we wrote the correct data.
         let mut read_content = String::new();
         file.get_file_mut().rewind().unwrap();
         file.get_file().read_to_string(&mut read_content).unwrap();
@@ -151,91 +177,185 @@ mod tests {
     }
 
     #[test]
-    fn test_file_open_read_write_create_works_successfully() {
-        let path = create_test_file_path("test-file-read-write-create.txt");
-        let content = "bling bang bang, bling bang bang, bling bang bang bom";
+    fn test_file_open_read_write_no_preexisting_file_fails() {
+        // Let's npt create a file, but create a path.
+        let path = create_test_file_path("test-file-read-write-npf.txt");
+
+        // And it should fail.
+        let res = File::open(path.clone(), FileAccessOptions::ReadWrite);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_file_open_read_write_create_preexisting_file_works_successfully() {
+        // Create the file with some content.
+        let path = create_test_file_path("test-file-read-write-create-pf.txt");
+        let orig_content = "bling bang bang, bling bang bang, bling bang bang bom";
+        create_test_file_with_content(path.clone(), orig_content.clone());
+
+        // We should be able to open the file since it exists.
         let mut file = File::open(path.clone(), FileAccessOptions::ReadWriteCreate).unwrap();
-        let res = file.get_file_mut().write_all(content.as_bytes());
+
+        // And make sure that the original content stays the same, since we didn't truncate it.
+        let mut read_content = String::new();
+        file.get_file().read_to_string(&mut read_content).unwrap();
+        assert_eq!(read_content.as_str(), orig_content);
+
+        // And we need to make sure we can write. Note that the file cursor is at the end of the
+        // file right now.
+        let res = file.get_file_mut().write_all("baang".as_bytes());
         assert!(res.is_ok());
 
-        let mut read_content = String::new();
+        // And we need to read it again to make sure the content is correctly written.
+        read_content.clear();
         file.get_file_mut().rewind().unwrap();
         file.get_file().read_to_string(&mut read_content).unwrap();
-        assert_eq!(read_content.as_str(), content);
+
+        let expected_content = "bling bang bang, bling bang bang, bling bang bang bombaang";
+        assert_eq!(read_content.as_str(), expected_content);
     }
 
     #[test]
-    fn test_file_open_read_truncate_works_successfully() {
-        let path = create_test_file_path("test-file-read-write-create.txt");
-        let old_content = "bling bang bang, bling bang bang, bling bang bang bom";
-        create_test_file_with_content(path.clone(), old_content);
-
-        let mut file = File::open(path.clone(), FileAccessOptions::ReadTruncate).unwrap();
-        let new_content = "ang sakit sa heart";
-        let res = file.get_file_mut().write_all(new_content.as_bytes());
-        assert!(res.is_ok());
-
-        let mut read_content = String::new();
-        file.get_file_mut().rewind().unwrap();
-        file.get_file().read_to_string(&mut read_content).unwrap();
-        assert_eq!(read_content.as_str(), new_content);
-    }
-
-    #[test]
-    fn test_file_open_read_truncate_create_no_preexisting_file_works_successfully() {
-        // If no file exists, then we just create it. It's as though we're just using ReadCreate.
+    fn test_file_open_read_write_create_no_preexisting_file_works_successfully() {
+        // Let's just create a path but not a file.
         let path = create_test_file_path("test-file-read-write-create-npf.txt");
 
-        // We should get a new file after this point.
-        let mut file = File::open(path.clone(), FileAccessOptions::ReadTruncateCreate).unwrap();
-        let content = "chilling vibes with SimCity 3000";
-        let res = file.get_file_mut().write_all(content.as_bytes());
+        // We should be able to open the file since it gets created.
+        let mut file = File::open(path.clone(), FileAccessOptions::ReadWriteCreate).unwrap();
+
+        // And make sure that the content is empty, since it's new.
+        let mut read_content = String::new();
+        file.get_file().read_to_string(&mut read_content).unwrap();
+        assert_eq!(read_content.as_str(), "");
+
+        // And we need to make sure we can write to it. Note that the file cursor is at the end of
+        // the file right now. Though, it wouldn't really matter since there was no data read.
+        let res = file.get_file_mut().write_all("baang".as_bytes());
         assert!(res.is_ok());
 
-        let mut read_content = String::new();
+        // And we need to read it again to make sure the content is correctly written.
+        read_content.clear();
         file.get_file_mut().rewind().unwrap();
         file.get_file().read_to_string(&mut read_content).unwrap();
-        assert_eq!(read_content.as_str(), content);
+
+        let expected_content = "baang";
+        assert_eq!(read_content.as_str(), expected_content);
     }
 
     #[test]
-    fn test_file_open_read_truncate_create_preexisting_file_works_successfully() {
-        // If a pre-existing file exists, it just gets truncated. It's as though we're just using
-        // ReadTruncate.
-        let path = create_test_file_path("test-file-read-write-create-pf.txt");
-        let old_content = "bling bang bang, bling bang bang, bling bang bang bom";
-        create_test_file_with_content(path.clone(), old_content);
+    fn test_file_open_read_write_create_or_truncate_preexisting_file_works_successfully() {
+        // Create a file with some content.
+        let path = create_test_file_path("test-file-read-write-create-or-truncate-pf.txt");
+        let orig_content = "bling bang bang, bling bang bang, bling bang bang bom";
+        create_test_file_with_content(path.clone(), orig_content.clone());
 
-        let mut file = File::open(path.clone(), FileAccessOptions::ReadTruncateCreate).unwrap();
-        let new_content = "i will be okay";
+        // We should be able to open the file since it exists.
+        let mut file = File::open(path.clone(), FileAccessOptions::ReadWriteCreateOrTruncate).unwrap();
+
+        // And make sure that the content is empty, since we truncated it.
+        let mut read_content = String::new();
+        file.get_file().read_to_string(&mut read_content).unwrap();
+        assert_eq!(read_content.as_str(), "");
+
+        // And we need to make sure we can write.
+        let new_content = "hey boogie woogie bang bang";
         let res = file.get_file_mut().write_all(new_content.as_bytes());
         assert!(res.is_ok());
 
-        let mut read_content = String::new();
+        // And we need to read it again to make sure the content is correctly written. Of course,
+        // we are rewinding the file cursor.
+        read_content.clear();
         file.get_file_mut().rewind().unwrap();
         file.get_file().read_to_string(&mut read_content).unwrap();
         assert_eq!(read_content.as_str(), new_content);
     }
 
     #[test]
-    fn test_file_open_write_only_works_successfully() {
-        // If a pre-existing file exists, it just gets truncated. It's as though we're just using
-        // ReadTruncate.
-        let path = create_test_file_path("test-file-write-only.txt");
+    fn test_file_open_read_write_create_or_truncate_no_preexisting_file_works_successfully() {
+        // Let's just create a path.
+        let path = create_test_file_path("test-file-read-write-create-or-truncate-npf.txt");
+
+        // We should be able to open the file, even if it didn't exist, since it gets created.
+        let mut file = File::open(path.clone(), FileAccessOptions::ReadWriteCreateOrTruncate).unwrap();
+
+        // And make sure that the content is empty, since it should be a new file.
+        let mut read_content = String::new();
+        file.get_file().read_to_string(&mut read_content).unwrap();
+        assert_eq!(read_content.as_str(), "");
+
+        // And we need to make sure we can write.
+        let new_content = "hey boogie woogie bang bang";
+        let res = file.get_file_mut().write_all(new_content.as_bytes());
+        assert!(res.is_ok());
+
+        // And we need to read it again to make sure the content is correctly written. Of course,
+        // we are rewinding the file cursor.
+        read_content.clear();
+        file.get_file_mut().rewind().unwrap();
+        file.get_file().read_to_string(&mut read_content).unwrap();
+        assert_eq!(read_content.as_str(), new_content);
+    }
+
+    #[test]
+    fn test_file_open_write_only_preexisting_file_works_successfully() {
+        // Create the pre-existing file.
+        let path = create_test_file_path("test-file-write-only-pf.txt");
         let old_content = "bling bang bang, bling bang bang, bling bang bang bom";
         create_test_file_with_content(path.clone(), old_content);
 
+        // And let's open it up again with write-only access, which should allow writing. The cursor
+        // should be at the start at this point.
         let mut file = File::open(path.clone(), FileAccessOptions::WriteOnly).unwrap();
         let new_content = "baang";
         let res = file.get_file_mut().write_all(new_content.as_bytes());
         assert!(res.is_ok());
 
+        // But should fail when reading is attempted.
         let mut _read_content = String::new();
         file.get_file_mut().rewind().unwrap();
         let res = file.get_file().read_to_string(&mut _read_content);
         assert!(res.is_err());
 
-        // Just checking if we wrote correctly.
+        // We then open the file again with read access to see if we wrote the data correctly.
+        let mut file_with_read = File::open(path.clone(), FileAccessOptions::ReadOnly).unwrap();
+        let mut read_content = String::new();
+        let expected_content = "baang bang bang, bling bang bang, bling bang bang bom";
+        file_with_read.get_file().read_to_string(&mut read_content).unwrap();
+        assert_eq!(read_content.as_str(), expected_content);
+    }
+
+    #[test]
+    fn test_file_open_write_only_no_preexisting_file_fails() {
+        // Let's just create the path, but won't create it.
+        let path = create_test_file_path("test-file-write-only-npf.txt");
+
+        // And let's open it up again with write-only access, but should fail, since it doesn't
+        // exist.
+        let res = File::open(path.clone(), FileAccessOptions::WriteOnly);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_file_open_write_create_preexisting_file_works_successfully() {
+        // Create the pre-existing file.
+        let path = create_test_file_path("test-file-write-only-pf.txt");
+        let old_content = "bling bang bang, bling bang bang, bling bang bang bom";
+        create_test_file_with_content(path.clone(), old_content);
+
+        // And let's open it up again with write-only access, since it exists. File cursor should
+        // be at the front right now.
+        let mut file = File::open(path.clone(), FileAccessOptions::WriteCreate).unwrap();
+        let new_content = "baang";
+        let res = file.get_file_mut().write_all(new_content.as_bytes());
+        assert!(res.is_ok());
+
+        // But should fail when reading is attempted.
+        let mut _read_content = String::new();
+        file.get_file_mut().rewind().unwrap();
+        let res = file.get_file().read_to_string(&mut _read_content);
+        assert!(res.is_err());
+
+        // We then open the file again with read access to see if we wrote the data correctly.
         let mut file_with_read = File::open(path.clone(), FileAccessOptions::ReadOnly).unwrap();
         let mut read_content = String::new();
         let expected_content = "baang bang bang, bling bang bang, bling bang bang bom";
@@ -245,50 +365,115 @@ mod tests {
 
     #[test]
     fn test_file_open_write_create_no_preexisting_file_works_successfully() {
-        // If no file exists, then we just create it. It's as though we're just using ReadCreate.
-        let path = create_test_file_path("test-file-read-write-create-npf.txt");
+        // Let's create the path, but without creating a file.
+        let path = create_test_file_path("test-file-write-create-npf.txt");
 
-        // We should get a new file after this point.
+        // And let's open it up with write-only access, which works since it gets created.
         let mut file = File::open(path.clone(), FileAccessOptions::WriteCreate).unwrap();
-        let content = "chilling vibes with SimCity 3000";
+        let content = "baang";
         let res = file.get_file_mut().write_all(content.as_bytes());
         assert!(res.is_ok());
 
-        let mut read_content = String::new();
+        // But should fail when reading is attempted.
+        let mut _read_content = String::new();
         file.get_file_mut().rewind().unwrap();
-        let res = file.get_file().read_to_string(&mut read_content);
+        let res = file.get_file().read_to_string(&mut _read_content);
         assert!(res.is_err());
 
-        // Just gonna check if we wrote into the file correctly.
-        file = File::open(path.clone(), FileAccessOptions::ReadOnly).unwrap();
-        read_content.clear();
-        file.get_file().read_to_string(&mut read_content).unwrap();
+        // We then open the file again with read access to see if we wrote the data correctly.
+        let mut file_with_read = File::open(path.clone(), FileAccessOptions::ReadOnly).unwrap();
+        let mut read_content = String::new();
+        file_with_read.get_file().read_to_string(&mut read_content).unwrap();
         assert_eq!(read_content.as_str(), content);
     }
 
     #[test]
-    fn test_file_open_write_create_preexisting_file_works_successfully() {
-        // If a pre-existing file exists, it just gets truncated. It's as though we're just using
-        // ReadTruncate.
-        let path = create_test_file_path("test-file-write-create-pf.txt");
+    fn test_file_open_write_truncate_preexisting_file_works_successfully() {
+        // Create the pre-existing file.
+        let path = create_test_file_path("test-file-write-truncate-pf.txt");
         let old_content = "bling bang bang, bling bang bang, bling bang bang bom";
         create_test_file_with_content(path.clone(), old_content);
 
-        let mut file = File::open(path.clone(), FileAccessOptions::WriteCreate).unwrap();
+        // And let's open it up again with write-only access, which works since it exists. However,
+        // it will be empty cause we truncated it. So, we're writing to an empty file.
+        let mut file = File::open(path.clone(), FileAccessOptions::WriteTruncate).unwrap();
         let new_content = "baang";
         let res = file.get_file_mut().write_all(new_content.as_bytes());
         assert!(res.is_ok());
 
-        let mut read_content = String::new();
+        // We should fail trying to read the contents though..
+        let mut _read_content = String::new();
         file.get_file_mut().rewind().unwrap();
-        let res = file.get_file().read_to_string(&mut read_content);
+        let res = file.get_file().read_to_string(&mut _read_content);
         assert!(res.is_err());
 
-        // Just gonna check if we wrote into the file correctly.
-        file = File::open(path.clone(), FileAccessOptions::ReadOnly).unwrap();
-        read_content.clear();
-        file.get_file().read_to_string(&mut read_content).unwrap();
-        assert_eq!(read_content.as_str(), "baang bang bang, bling bang bang, bling bang bang bom");
+        // We then open the file again with read access to see if we wrote the data correctly.
+        let mut file_with_read = File::open(path.clone(), FileAccessOptions::ReadOnly).unwrap();
+        let mut read_content = String::new();
+        file_with_read.get_file().read_to_string(&mut read_content).unwrap();
+        assert_eq!(read_content.as_str(), new_content);
+    }
+
+    #[test]
+    fn test_file_open_write_truncate_no_preexisting_file_fails() {
+        // Let's create the path, but not the file.
+        let path = create_test_file_path("test-file-write-truncate-npf.txt");
+
+        // And we will fail when we try to open the file since it does not exist.
+        let res = File::open(path.clone(), FileAccessOptions::WriteTruncate);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_file_open_write_create_or_truncate_preexisting_file_works_successfully() {
+        // Create the pre-existing file.
+        let path = create_test_file_path("test-file-write-create-or-truncate-pf.txt");
+        let old_content = "bling bang bang, bling bang bang, bling bang bang bom";
+        create_test_file_with_content(path.clone(), old_content);
+
+        // And let's open it up again with write-only access, which works since it exists. However,
+        // it will be empty cause we truncated it. So, we're writing to an empty file.
+        let mut file = File::open(path.clone(), FileAccessOptions::WriteCreateOrTruncate).unwrap();
+        let new_content = "baang";
+        let res = file.get_file_mut().write_all(new_content.as_bytes());
+        assert!(res.is_ok());
+
+        // And it should fail when we try to read the file.
+        let mut _read_content = String::new();
+        file.get_file_mut().rewind().unwrap();
+        let res = file.get_file().read_to_string(&mut _read_content);
+        assert!(res.is_err());
+
+        // We then open the file again with read access to see if we wrote the data correctly.
+        let mut file_with_read = File::open(path.clone(), FileAccessOptions::ReadOnly).unwrap();
+        let mut read_content = String::new();
+        file_with_read.get_file().read_to_string(&mut read_content).unwrap();
+        assert_eq!(read_content.as_str(), new_content);
+    }
+
+    #[test]
+    fn test_file_open_write_create_or_truncate_no_preexisting_file_works_successfully() {
+        // Let's create a path, but no file.
+        let path = create_test_file_path("test-file-write-create-or-truncate-npf.txt");
+
+        // And let's open it up again with write-only access, which works since it gets created.
+        // However, it will be empty cause we truncated it. So, we're writing to an empty file.
+        let mut file = File::open(path.clone(), FileAccessOptions::WriteCreateOrTruncate).unwrap();
+        let content = "baang";
+        let res = file.get_file_mut().write_all(content.as_bytes());
+        assert!(res.is_ok());
+
+        // And it should fail when we try to read the file.
+        let mut _read_content = String::new();
+        file.get_file_mut().rewind().unwrap();
+        let res = file.get_file().read_to_string(&mut _read_content);
+        assert!(res.is_err());
+
+        // We then open the file again with read access to see if we wrote the data correctly.
+        let mut file_with_read = File::open(path.clone(), FileAccessOptions::ReadOnly).unwrap();
+        let mut read_content = String::new();
+        file_with_read.get_file().read_to_string(&mut read_content).unwrap();
+        assert_eq!(read_content.as_str(), content);
     }
 
     #[test]
@@ -311,30 +496,31 @@ mod tests {
     fn test_copying_file_contents() {
         let temp_dir = tempdir().unwrap().into_path();
 
+        // Let's create the test source file.
         let mut src_file_path = temp_dir.clone();
         src_file_path.push("src-a.txt");
-        let mut src_file = File::open(src_file_path, FileAccessOptions::ReadTruncateCreate).unwrap();
+        let mut src_file = File::open(src_file_path, FileAccessOptions::ReadWriteCreateOrTruncate).unwrap();
 
         // Used to be "kimiwa", but RustRover suggested it to be "kimchi" instead. It's funnier,
         // so we'll be keeping that.
         const TEST_CONTENT: &str = "Kuno mama kimchi";
         src_file.get_file_mut().write(TEST_CONTENT.as_bytes()).unwrap();
 
+        // And then let's create the test destination file.
         let mut dest_file_path = temp_dir.clone();
         dest_file_path.push("dest-a.txt");
-        let mut dest_file = File::open(dest_file_path, FileAccessOptions::ReadTruncateCreate).unwrap();
+        let mut dest_file = File::open(dest_file_path, FileAccessOptions::ReadWriteCreateOrTruncate).unwrap();
 
-        let mut contents = String::new();
-        dest_file.get_file().read_to_string(&mut contents).unwrap();
-        assert_eq!(contents, "");
-
-        // We need to rewind the source file since the cursor should be at the end of the file
+        // And now we try to copy.
+        //
+        // We need to rewind the source file since the cursor will be at the end of the file
         // at this point, after writing to it.
         src_file.get_file_mut().rewind().unwrap();
 
         let res = copy_file_contents(&mut src_file, &mut dest_file);
         assert!(res.is_ok());
 
+        // And we should get the same string held by TEST_CONTENT in the destination file.
         let mut contents = String::new();
         dest_file.get_file_mut().rewind().unwrap();
         dest_file.get_file().read_to_string(&mut contents).unwrap();
@@ -344,7 +530,7 @@ mod tests {
     #[inline]
     fn create_test_file<P: AsRef<Path>>(path: P) {
         // We need to create the file first.
-        let res = File::open(path.as_ref(), FileAccessOptions::CreateOnly);
+        let res = File::touch(path.as_ref());
         assert!(res.is_ok());
     }
 

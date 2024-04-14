@@ -174,7 +174,7 @@ impl Task for EncryptionTask {
         let file_name =
             file_name(self.src_file.get_file()).map_err(|e| Error::IOError(PathBuf::new(), Arc::new(e)))?;
         let dest_file_path = append_file_extension_to_path(file_name.as_path(), "ssef");
-        let mut dest_file = File::open(dest_file_path.clone(), FileAccessOptions::TruncateCreate)?;
+        let mut dest_file = File::open(dest_file_path.clone(), FileAccessOptions::WriteTruncate)?;
 
         // No progress notification here yet, but this should provide the foundation.
         let mut buffer = [0u8; IO_BUFFER_LEN];
@@ -399,7 +399,7 @@ mod tests {
 
         let dir = tempfile::tempdir().unwrap();
         let src_file_path = dir.path().join(SRC_FILENAME);
-        let src_file = File::open(src_file_path, FileAccessOptions::CreateOnly).unwrap();
+        let src_file = File::open(src_file_path, FileAccessOptions::ReadOnly).unwrap();
         let password = String::from("short");
 
         let res = EncryptionTask::new(src_file, password.into_bytes());
