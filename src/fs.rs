@@ -30,30 +30,57 @@ pub enum FileAccessOptions {
 #[derive(Debug)]
 pub struct File {
     file: fs::File,
-    path: PathBuf
+    path: PathBuf,
+    is_readable: bool,
+    is_writable: bool
 }
 
 impl File {
     pub fn open<P: AsRef<Path>>(path: P, access_option: FileAccessOptions) -> Result<Self> {
+        let mut readable = false;
+        let mut writable = false;
         let mut options = fs::File::options();
         match access_option {
-            FileAccessOptions::ReadOnly => { options.read(true); },
-            FileAccessOptions::ReadWrite => { options.read(true).write(true); },
-            FileAccessOptions::ReadWriteCreate => { options.read(true).write(true).create(true); },
+            FileAccessOptions::ReadOnly => {
+                readable = true;
+                options.read(true);
+            },
+            FileAccessOptions::ReadWrite => {
+                readable = true;
+                writable = true;
+                options.read(true).write(true);
+            },
+            FileAccessOptions::ReadWriteCreate => {
+                readable = true;
+                writable = true;
+                options.read(true).write(true).create(true);
+            },
             FileAccessOptions::ReadWriteCreateOrTruncate => {
+                readable = true;
+                writable = true;
                 options.read(true).write(true).create(true).truncate(true);
             }
-            FileAccessOptions::WriteOnly => { options.write(true); },
-            FileAccessOptions::WriteCreate => { options.write(true).create(true); },
-            FileAccessOptions::WriteTruncate => { options.write(true).truncate(true); },
+            FileAccessOptions::WriteOnly => {
+                writable = true;
+                options.write(true);
+            },
+            FileAccessOptions::WriteCreate => {
+                writable = true;
+                options.write(true).create(true);
+            },
+            FileAccessOptions::WriteTruncate => {
+                writable = true;
+                options.write(true).truncate(true);
+            },
             FileAccessOptions::WriteCreateOrTruncate => {
+                writable = true;
                 options.write(true).create(true).truncate(true);
             }
         }
 
         let file_path = PathBuf::from(path.as_ref());
         match options.open(path.as_ref()) {
-            Ok(f) => Ok(Self { file: f, path: file_path }),
+            Ok(f) => Ok(Self { file: f, path: file_path, is_readable: readable, is_writable: writable }),
             Err(e) => Err(IOError(file_path, Arc::new(e)))
         }
     }
@@ -68,6 +95,8 @@ impl File {
     pub fn get_file(&self) -> &fs::File { &self.file }
     pub fn get_file_mut(&mut self) -> &mut fs::File { &mut self.file }
     pub fn get_path(&self) -> &Path { self.path.as_path() }
+    pub fn is_readable(&self) -> bool { self.is_readable }
+    pub fn is_writable(&self) -> bool { self.is_writable }
 }
 
 pub fn append_file_extension_to_path<P: AsRef<Path>, S: AsRef<OsStr>>(file_path: P, ext: S) -> PathBuf {
@@ -139,6 +168,9 @@ mod tests {
 
         // And read from it. It should succeed.
         let mut file = File::open(path.clone(), FileAccessOptions::ReadOnly).unwrap();
+        assert!(file.is_readable());
+        assert!(!file.is_writable());
+
         let mut read_content = String::new();
         let res = file.get_file().read_to_string(&mut read_content);
         assert!(res.is_ok());
@@ -166,6 +198,8 @@ mod tests {
         // Make sure we can write to it.
         let content = "bling bang bang, bling bang bang, bling bang bang bom";
         let mut file = File::open(path.clone(), FileAccessOptions::ReadWrite).unwrap();
+        assert!(file.is_readable());
+        assert!(file.is_writable());
         let res = file.get_file_mut().write_all(content.as_bytes());
         assert!(res.is_ok());
 
@@ -195,6 +229,8 @@ mod tests {
 
         // We should be able to open the file since it exists.
         let mut file = File::open(path.clone(), FileAccessOptions::ReadWriteCreate).unwrap();
+        assert!(file.is_readable());
+        assert!(file.is_writable());
 
         // And make sure that the original content stays the same, since we didn't truncate it.
         let mut read_content = String::new();
@@ -222,6 +258,8 @@ mod tests {
 
         // We should be able to open the file since it gets created.
         let mut file = File::open(path.clone(), FileAccessOptions::ReadWriteCreate).unwrap();
+        assert!(file.is_readable());
+        assert!(file.is_writable());
 
         // And make sure that the content is empty, since it's new.
         let mut read_content = String::new();
@@ -251,6 +289,8 @@ mod tests {
 
         // We should be able to open the file since it exists.
         let mut file = File::open(path.clone(), FileAccessOptions::ReadWriteCreateOrTruncate).unwrap();
+        assert!(file.is_readable());
+        assert!(file.is_writable());
 
         // And make sure that the content is empty, since we truncated it.
         let mut read_content = String::new();
@@ -277,6 +317,8 @@ mod tests {
 
         // We should be able to open the file, even if it didn't exist, since it gets created.
         let mut file = File::open(path.clone(), FileAccessOptions::ReadWriteCreateOrTruncate).unwrap();
+        assert!(file.is_readable());
+        assert!(file.is_writable());
 
         // And make sure that the content is empty, since it should be a new file.
         let mut read_content = String::new();
@@ -306,6 +348,8 @@ mod tests {
         // And let's open it up again with write-only access, which should allow writing. The cursor
         // should be at the start at this point.
         let mut file = File::open(path.clone(), FileAccessOptions::WriteOnly).unwrap();
+        assert!(!file.is_readable());
+        assert!(file.is_writable());
         let new_content = "baang";
         let res = file.get_file_mut().write_all(new_content.as_bytes());
         assert!(res.is_ok());
@@ -345,6 +389,9 @@ mod tests {
         // And let's open it up again with write-only access, since it exists. File cursor should
         // be at the front right now.
         let mut file = File::open(path.clone(), FileAccessOptions::WriteCreate).unwrap();
+        assert!(!file.is_readable());
+        assert!(file.is_writable());
+
         let new_content = "baang";
         let res = file.get_file_mut().write_all(new_content.as_bytes());
         assert!(res.is_ok());
@@ -370,6 +417,9 @@ mod tests {
 
         // And let's open it up with write-only access, which works since it gets created.
         let mut file = File::open(path.clone(), FileAccessOptions::WriteCreate).unwrap();
+        assert!(!file.is_readable());
+        assert!(file.is_writable());
+
         let content = "baang";
         let res = file.get_file_mut().write_all(content.as_bytes());
         assert!(res.is_ok());
@@ -397,6 +447,9 @@ mod tests {
         // And let's open it up again with write-only access, which works since it exists. However,
         // it will be empty cause we truncated it. So, we're writing to an empty file.
         let mut file = File::open(path.clone(), FileAccessOptions::WriteTruncate).unwrap();
+        assert!(!file.is_readable());
+        assert!(file.is_writable());
+
         let new_content = "baang";
         let res = file.get_file_mut().write_all(new_content.as_bytes());
         assert!(res.is_ok());
@@ -434,6 +487,9 @@ mod tests {
         // And let's open it up again with write-only access, which works since it exists. However,
         // it will be empty cause we truncated it. So, we're writing to an empty file.
         let mut file = File::open(path.clone(), FileAccessOptions::WriteCreateOrTruncate).unwrap();
+        assert!(!file.is_readable());
+        assert!(file.is_writable());
+
         let new_content = "baang";
         let res = file.get_file_mut().write_all(new_content.as_bytes());
         assert!(res.is_ok());
@@ -459,6 +515,8 @@ mod tests {
         // And let's open it up again with write-only access, which works since it gets created.
         // However, it will be empty cause we truncated it. So, we're writing to an empty file.
         let mut file = File::open(path.clone(), FileAccessOptions::WriteCreateOrTruncate).unwrap();
+        assert!(!file.is_readable());
+        assert!(file.is_writable());
         let content = "baang";
         let res = file.get_file_mut().write_all(content.as_bytes());
         assert!(res.is_ok());
