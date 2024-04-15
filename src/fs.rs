@@ -1,5 +1,5 @@
 use crate::crypto::IO_BUFFER_LEN;
-use crate::errors::{Result};
+use crate::errors::{Copy, Error, IO, Result};
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::{Read, Write};
@@ -8,7 +8,6 @@ use std::os::windows::io::{AsHandle, AsRawHandle};
 use std::panic::{RefUnwindSafe, UnwindSafe};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use crate::errors::Error::IOError;
 
 // Create and truncate access options only make sense when we're writing to them. So, we won't
 // combine any of them with read access. Creating and truncating files should be done via
@@ -81,14 +80,14 @@ impl File {
         let file_path = PathBuf::from(path.as_ref());
         match options.open(path.as_ref()) {
             Ok(f) => Ok(Self { file: f, path: file_path, is_readable: readable, is_writable: writable }),
-            Err(e) => Err(IOError(file_path, Arc::new(e)))
+            Err(e) => Err(Error::from(IO::new(file_path, Arc::new(e))))
         }
     }
 
     pub fn touch<P: AsRef<Path>>(path: P) -> Result<()> {
         match fs::File::create(path.as_ref().clone()) {
             Ok(_) => Ok(()),
-            Err(e) => Err(IOError(PathBuf::from(path.as_ref().clone()), Arc::new(e)))
+            Err(e) => Err(Error::from(IO::new(path.as_ref(), Arc::new(e))))
         }
     }
 
@@ -132,20 +131,38 @@ pub fn copy_file_contents(
     src_file: &mut File,
     dest_file: &mut File
 ) -> Result<()> {
+    if !src_file.is_readable() {
+        return Err(
+            Error::from(Copy::new(
+                src_file.get_path(),
+                dest_file.get_path(),
+                "No read access to the source file"
+            ))
+        );
+    } else if !dest_file.is_writable() {
+        return Err(
+            Error::from(Copy::new(
+                src_file.get_path(),
+                dest_file.get_path(),
+                "No write access to the destination file"
+            ))
+        );
+    }
+
     // No progress notification here yet, but this should provide the foundation.
     let mut buffer = [0u8; IO_BUFFER_LEN];
     loop {
         let read_count = src_file
             .get_file_mut()
             .read(&mut buffer)
-            .map_err(|e| IOError(src_file.path.clone(), Arc::from(e)))?;
+            .map_err(|e| IO::new(src_file.path.clone(), Arc::from(e)))?;
         if read_count == 0 {
             break;
         } else {
             dest_file
                 .get_file_mut()
                 .write(&buffer[0..read_count])
-                .map_err(|e| IOError(dest_file.path.clone(), Arc::from(e)))?;
+                .map_err(|e| IO::new(dest_file.path.clone(), Arc::from(e)))?;
         }
     }
 

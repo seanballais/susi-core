@@ -12,8 +12,8 @@ use argon2;
 use argon2::Algorithm::Argon2id;
 use filename;
 
-use crate::errors::Error;
-use crate::errors::Result;
+use crate::errors;
+use crate::errors::{Error, Result};
 use crate::logging;
 
 pub const SALT_LENGTH: usize = 32;
@@ -77,17 +77,17 @@ pub fn encrypt_to_ssef_file(
     // Let's just rewind the files back to make sure.
     src_file
         .rewind()
-        .map_err(|e| Error::IOError(src_file_name.clone(), Arc::from(e)))?;
+        .map_err(|e| errors::IO::new(src_file_name.clone(), Arc::from(e)))?;
     dest_file
         .rewind()
-        .map_err(|e| Error::IOError(dest_file_name.clone(), Arc::from(e)))?;
+        .map_err(|e| errors::IO::new(dest_file_name.clone(), Arc::from(e)))?;
 
     let key = create_key_from_password(password, salt)?;
     let header = create_metadata_section_for_encrypted_file(src_file, salt, nonce)?;
 
     dest_file
         .write_all(header.as_slice())
-        .map_err(|e| Error::IOError(dest_file_name.clone(), Arc::from(e)))?;
+        .map_err(|e| errors::IO::new(dest_file_name.clone(), Arc::from(e)))?;
 
     encrypt_file(
         src_file,
@@ -138,10 +138,10 @@ pub fn decrypt_from_ssef_file(
     // Let's just rewind the files back to make sure.
     src_file
         .rewind()
-        .map_err(|e| Error::IOError(src_file_name.clone(), Arc::from(e)))?;
+        .map_err(|e| errors::IO::new(src_file_name.clone(), Arc::from(e)))?;
     dest_file
         .rewind()
-        .map_err(|e| Error::IOError(dest_file_name.clone(), Arc::new(e)))?;
+        .map_err(|e| errors::IO::new(dest_file_name.clone(), Arc::new(e)))?;
 
     validate_ssef_file_identifier(src_file)?;
     validate_ssef_file_format_version(src_file)?;
@@ -169,7 +169,7 @@ pub fn create_key_from_password(password: &[u8], salt: &[u8]) -> Result<SusiKey>
     tracing::info!("Creating key from password and salt");
 
     if password.len() < MINIMUM_PASSWORD_LENGTH {
-        return Err(Error::InvalidPasswordLengthError);
+        return Err(Error::InvalidPasswordLength);
     }
 
     let argon2_params = argon2::ParamsBuilder::new().output_len(32).build()?;
@@ -221,13 +221,13 @@ fn encrypt_file(
     loop {
         if let Some(ref should_stop) = should_stop {
             if should_stop.load(Ordering::Relaxed) {
-                return Err(Error::TaskTerminatedError);
+                return Err(Error::TaskTerminated);
             }
         }
 
         let read_count = src_file
             .read(&mut buffer)
-            .map_err(|e| Error::IOError(src_file_name.clone(), Arc::from(e)))?;
+            .map_err(|e| errors::IO::new(src_file_name.clone(), Arc::from(e)))?;
 
         if let Some(ref num_bytes) = num_read_bytes {
             num_bytes.fetch_add(read_count, Ordering::Relaxed);
@@ -240,7 +240,7 @@ fn encrypt_file(
             let encrypted = stream_encryptor.encrypt_next(buffer.as_slice())?;
             let write_count = dest_file
                 .write(&encrypted)
-                .map_err(|e| Error::IOError(dest_file_name.clone(), Arc::from(e)))?;
+                .map_err(|e| errors::IO::new(dest_file_name.clone(), Arc::from(e)))?;
 
             if let Some(ref num_bytes) = num_written_bytes {
                 num_bytes.fetch_add(write_count, Ordering::Relaxed);
@@ -249,7 +249,7 @@ fn encrypt_file(
             let encrypted = stream_encryptor.encrypt_last(&buffer[..read_count])?;
             let write_count = dest_file
                 .write(&encrypted)
-                .map_err(|e| Error::IOError(dest_file_name.clone(), Arc::from(e)))?;
+                .map_err(|e| errors::IO::new(dest_file_name.clone(), Arc::from(e)))?;
 
             if let Some(ref num_bytes) = num_written_bytes {
                 num_bytes.fetch_add(write_count, Ordering::Relaxed);
@@ -303,13 +303,13 @@ fn decrypt_file(
     loop {
         if let Some(ref should_stop) = should_stop {
             if should_stop.load(Ordering::Relaxed) {
-                return Err(Error::TaskTerminatedError);
+                return Err(Error::TaskTerminated);
             }
         }
 
         let read_count = src_file
             .read(&mut buffer)
-            .map_err(|e| Error::IOError(src_file_name.clone(), Arc::from(e)))?;
+            .map_err(|e| errors::IO::new(src_file_name.clone(), Arc::from(e)))?;
 
         if let Some(ref num_bytes) = num_read_bytes {
             num_bytes.fetch_add(read_count, Ordering::Relaxed);
@@ -321,7 +321,7 @@ fn decrypt_file(
             let decrypted = stream_decryptor.decrypt_next(buffer.as_slice())?;
             let write_count = dest_file
                 .write(&decrypted)
-                .map_err(|e| Error::IOError(dest_file_name.clone(), Arc::from(e)))?;
+                .map_err(|e| errors::IO::new(dest_file_name.clone(), Arc::from(e)))?;
 
             if let Some(ref num_bytes) = num_written_bytes {
                 num_bytes.fetch_add(write_count, Ordering::Relaxed);
@@ -330,7 +330,7 @@ fn decrypt_file(
             let decrypted = stream_decryptor.decrypt_last(&buffer[..read_count])?;
             let write_count = dest_file
                 .write(&decrypted)
-                .map_err(|e| Error::IOError(dest_file_name.clone(), Arc::from(e)))?;
+                .map_err(|e| errors::IO::new(dest_file_name.clone(), Arc::from(e)))?;
 
             if let Some(num_bytes) = num_written_bytes {
                 num_bytes.fetch_add(write_count, Ordering::Relaxed);
@@ -427,7 +427,7 @@ fn validate_ssef_file_identifier(src_file: &mut File) -> Result<()> {
     let mut file_identifier_buffer = [0u8; 2];
     src_file.read(&mut file_identifier_buffer)?;
     if file_identifier_buffer != [0x55, 0x3F] {
-        return Err(Error::InvalidSSEFFileIdentifierError);
+        return Err(Error::InvalidSSEFFileIdentifier);
     }
 
     Ok(())
@@ -440,7 +440,7 @@ fn validate_ssef_file_format_version(src_file: &mut File) -> Result<()> {
     let file_format_version =
         file_format_version_buffer[0] as u16 | (file_format_version_buffer[1] as u16) << 8;
     if file_format_version != 1 {
-        return Err(Error::UnsupportedSSEFFormatVersionError);
+        return Err(Error::UnsupportedSSEFFormatVersion);
     }
 
     Ok(())
@@ -484,7 +484,7 @@ pub fn get_metadata_section_from_ssef_file(src_file: &mut File) -> Result<SSEFMe
             [0x90, 0x9C] => {
                 nonce = value
                     .try_into()
-                    .map_err(|_| Error::InvalidNonceLengthError)?;
+                    .map_err(|_| Error::InvalidNonceLength)?;
             }
             _ => {}
         }

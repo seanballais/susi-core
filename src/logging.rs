@@ -35,7 +35,7 @@ pub fn init_logging() {
                 e.to_string()
             );
             println!("WARNING! {}", msg);
-            update_last_error(Error::LoggingError(msg));
+            update_last_error(Error::Logging(msg));
             return;
         }
     };
@@ -56,7 +56,7 @@ pub fn init_logging() {
                 e.to_string()
             );
             println!("WARNING! {}", msg);
-            update_last_error(Error::LoggingError(String::from(msg)));
+            update_last_error(Error::Logging(String::from(msg)));
             return;
         }
     }
@@ -73,7 +73,7 @@ fn get_logging_directory() -> Result<PathBuf> {
     if let Some(dir) = home_dir {
         base_log_dir.push(dir);
     } else {
-        return Err(Error::InvalidDirectoryError(String::from(
+        return Err(Error::InvalidDirectory(String::from(
             "No suitable directory to store logs",
         )));
     }

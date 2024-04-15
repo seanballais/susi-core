@@ -16,6 +16,7 @@ use crate::crypto::{
     MINIMUM_PASSWORD_LENGTH, SALT_LENGTH,
 };
 use crate::ds::{FIFOQueue, Queue};
+use crate::errors;
 use crate::errors::{Error, Result};
 use crate::fs::{append_file_extension_to_path, File, FileAccessOptions};
 
@@ -112,7 +113,7 @@ impl EncryptionTask {
 
         let password_string = String::from_utf8_lossy(password.as_slice());
         if password_string.len() < MINIMUM_PASSWORD_LENGTH {
-            return Err(Error::InvalidPasswordLengthError);
+            return Err(Error::InvalidPasswordLength);
         }
 
         let salt = Alphanumeric
@@ -144,7 +145,7 @@ impl Task for EncryptionTask {
         // is complete.
         let mut temp_dest_file = match tempfile::tempfile() {
             Ok(f) => f,
-            Err(e) => return Err(Error::IOError(PathBuf::new(), Arc::new(e))),
+            Err(e) => return Err(Error::from(errors::IO::new(PathBuf::new(), Arc::new(e)))),
         };
 
         let should_stop_copy = should_stop.clone();
@@ -172,7 +173,7 @@ impl Task for EncryptionTask {
                                   // file's cursor earlier.
 
         let file_name =
-            file_name(self.src_file.get_file()).map_err(|e| Error::IOError(PathBuf::new(), Arc::new(e)))?;
+            file_name(self.src_file.get_file()).map_err(|e| errors::IO::new(PathBuf::new(), Arc::new(e)))?;
         let dest_file_path = append_file_extension_to_path(file_name.as_path(), "ssef");
         let mut dest_file = File::open(dest_file_path.clone(), FileAccessOptions::WriteTruncate)?;
 
@@ -181,14 +182,14 @@ impl Task for EncryptionTask {
         loop {
             let read_count = temp_dest_file
                 .read(&mut buffer)
-                .map_err(|e| Error::IOError(PathBuf::new(), Arc::from(e)))?;
+                .map_err(|e| errors::IO::new(PathBuf::new(), Arc::from(e)))?;
             if read_count == 0 {
                 break;
             } else {
                 dest_file
                     .get_file_mut()
                     .write(&buffer[0..read_count])
-                    .map_err(|e| Error::IOError(dest_file_path.clone(), Arc::from(e)))?;
+                    .map_err(|e| errors::IO::new(dest_file_path.clone(), Arc::from(e)))?;
             }
         }
 
