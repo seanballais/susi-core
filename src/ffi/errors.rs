@@ -6,7 +6,7 @@ use std::slice::from_raw_parts_mut;
 
 use libc::{c_char, c_int};
 
-use crate::{errors, logging};
+use crate::errors;
 
 thread_local! {
     static LAST_FFI_ERROR: RefCell<Option<errors::Error>> = RefCell::new(None);

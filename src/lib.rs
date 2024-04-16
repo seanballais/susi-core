@@ -11,6 +11,7 @@ pub mod logging;
 mod metadata;
 mod tasks;
 mod workers;
+mod path;
 
 pub fn init_core_systems() {
     logging::init_logging();

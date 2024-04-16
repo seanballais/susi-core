@@ -1,20 +1,19 @@
 use std::ffi::OsStr;
-use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{atomic, Arc};
+use std::sync::{Arc};
 
 use aead;
 use aead::KeyInit;
+use aead::stream::{DecryptorBE32, EncryptorBE32};
 use aes_gcm;
+use aes_gcm::Aes256Gcm;
 use argon2;
 use argon2::Algorithm::Argon2id;
-use filename;
 
 use crate::errors;
 use crate::errors::{Error, Result};
-use crate::logging;
+use crate::fs::File;
 
 pub const SALT_LENGTH: usize = 32;
 
@@ -51,43 +50,26 @@ pub fn encrypt_to_ssef_file(
     num_written_bytes: Option<Arc<AtomicUsize>>,
     should_stop: Option<Arc<AtomicBool>>,
 ) -> Result<()> {
-    let src_file_name = filename::file_name(src_file).unwrap_or_else(|e| {
-        tracing::warn!(
-            "Unable to get the file name for a source file. Error: {}",
-            e.to_string()
-        );
-
-        PathBuf::new()
-    });
-
-    let dest_file_name = filename::file_name(dest_file).unwrap_or_else(|e| {
-        tracing::warn!(
-            "Unable to get the file name for a destination file. Error: {}",
-            e.to_string()
-        );
-
-        PathBuf::new()
-    });
     tracing::info!(
         "Encrypting file, {}, to {}",
-        src_file_name.display(),
-        dest_file_name.display()
+        src_file.path_or_empty().display(),
+        dest_file.path_or_empty().display()
     );
 
     // Let's just rewind the files back to make sure.
     src_file
         .rewind()
-        .map_err(|e| errors::IO::new(src_file_name.clone(), Arc::from(e)))?;
+        .map_err(|e| errors::IO::new(src_file.path().clone(), Arc::from(e)))?;
     dest_file
         .rewind()
-        .map_err(|e| errors::IO::new(dest_file_name.clone(), Arc::from(e)))?;
+        .map_err(|e| errors::IO::new(dest_file.path().clone(), Arc::new(e)))?;
 
     let key = create_key_from_password(password, salt)?;
     let header = create_metadata_section_for_encrypted_file(src_file, salt, nonce)?;
 
     dest_file
         .write_all(header.as_slice())
-        .map_err(|e| errors::IO::new(dest_file_name.clone(), Arc::from(e)))?;
+        .map_err(|e| errors::IO::new(dest_file.path().clone(), Arc::from(e)))?;
 
     encrypt_file(
         src_file,
@@ -112,36 +94,19 @@ pub fn decrypt_from_ssef_file(
     num_written_bytes: Option<Arc<AtomicUsize>>,
     should_stop: Option<Arc<AtomicBool>>,
 ) -> Result<()> {
-    let src_file_name = filename::file_name(src_file).unwrap_or_else(|e| {
-        tracing::warn!(
-            "Unable to get the file name for a source file. Error: {}",
-            e.to_string()
-        );
-
-        PathBuf::new()
-    });
-    let dest_file_name = filename::file_name(dest_file).unwrap_or_else(|e| {
-        tracing::warn!(
-            "Unable to get the file name for a destination file. Error: {}",
-            e.to_string()
-        );
-
-        PathBuf::new()
-    });
-
     tracing::info!(
         "Decrypting file, {}, to {}",
-        src_file_name.display(),
-        dest_file_name.display()
+        src_file.path_or_empty().display(),
+        dest_file.path_or_empty().display()
     );
 
     // Let's just rewind the files back to make sure.
     src_file
         .rewind()
-        .map_err(|e| errors::IO::new(src_file_name.clone(), Arc::from(e)))?;
+        .map_err(|e| errors::IO::new(src_file.path().clone(), Arc::from(e)))?;
     dest_file
         .rewind()
-        .map_err(|e| errors::IO::new(dest_file_name.clone(), Arc::new(e)))?;
+        .map_err(|e| errors::IO::new(dest_file.path().clone(), Arc::new(e)))?;
 
     validate_ssef_file_identifier(src_file)?;
     validate_ssef_file_format_version(src_file)?;
@@ -190,32 +155,15 @@ fn encrypt_file(
     num_written_bytes: Option<Arc<AtomicUsize>>,
     should_stop: Option<Arc<AtomicBool>>,
 ) -> Result<()> {
-    let aead = aes_gcm::Aes256Gcm::new(key.as_ref().into());
-    let mut stream_encryptor = aead::stream::EncryptorBE32::from_aead(aead, nonce.as_ref().into());
+    let aead = Aes256Gcm::new(key.as_ref().into());
+    let mut stream_encryptor = EncryptorBE32::from_aead(aead, nonce.as_ref().into());
 
     let mut buffer = vec![0u8; *buffer_len];
 
-    let src_file_name = filename::file_name(src_file).unwrap_or_else(|e| {
-        tracing::warn!(
-            "Unable to get the file name for a source file. Error: {}",
-            e.to_string()
-        );
-
-        PathBuf::new()
-    });
-    let dest_file_name = filename::file_name(dest_file).unwrap_or_else(|e| {
-        tracing::warn!(
-            "Unable to get the file name for a destination file. Error: {}",
-            e.to_string()
-        );
-
-        PathBuf::new()
-    });
-
     tracing::info!(
         "Encrypting data from {} to {}",
-        src_file_name.display(),
-        dest_file_name.display()
+        src_file.path_or_empty().display(),
+        dest_file.path_or_empty().display()
     );
 
     loop {
@@ -227,7 +175,7 @@ fn encrypt_file(
 
         let read_count = src_file
             .read(&mut buffer)
-            .map_err(|e| errors::IO::new(src_file_name.clone(), Arc::from(e)))?;
+            .map_err(|e| errors::IO::new(src_file.path().clone(), Arc::from(e)))?;
 
         if let Some(ref num_bytes) = num_read_bytes {
             num_bytes.fetch_add(read_count, Ordering::Relaxed);
@@ -240,7 +188,7 @@ fn encrypt_file(
             let encrypted = stream_encryptor.encrypt_next(buffer.as_slice())?;
             let write_count = dest_file
                 .write(&encrypted)
-                .map_err(|e| errors::IO::new(dest_file_name.clone(), Arc::from(e)))?;
+                .map_err(|e| errors::IO::new(dest_file.path().clone(), Arc::from(e)))?;
 
             if let Some(ref num_bytes) = num_written_bytes {
                 num_bytes.fetch_add(write_count, Ordering::Relaxed);
@@ -249,7 +197,7 @@ fn encrypt_file(
             let encrypted = stream_encryptor.encrypt_last(&buffer[..read_count])?;
             let write_count = dest_file
                 .write(&encrypted)
-                .map_err(|e| errors::IO::new(dest_file_name.clone(), Arc::from(e)))?;
+                .map_err(|e| errors::IO::new(dest_file.path().clone(), Arc::from(e)))?;
 
             if let Some(ref num_bytes) = num_written_bytes {
                 num_bytes.fetch_add(write_count, Ordering::Relaxed);
@@ -272,32 +220,15 @@ fn decrypt_file(
     num_written_bytes: Option<Arc<AtomicUsize>>,
     should_stop: Option<Arc<AtomicBool>>,
 ) -> Result<()> {
-    let aead = aes_gcm::Aes256Gcm::new(key.as_ref().into());
-    let mut stream_decryptor = aead::stream::DecryptorBE32::from_aead(aead, nonce.as_ref().into());
+    let aead = Aes256Gcm::new(key.as_ref().into());
+    let mut stream_decryptor = DecryptorBE32::from_aead(aead, nonce.as_ref().into());
 
     let mut buffer = vec![0u8; *buffer_len];
 
-    let src_file_name = filename::file_name(src_file).unwrap_or_else(|e| {
-        tracing::warn!(
-            "Unable to get the file name for a source file. Error: {}",
-            e.to_string()
-        );
-
-        PathBuf::new()
-    });
-    let dest_file_name = filename::file_name(dest_file).unwrap_or_else(|e| {
-        tracing::warn!(
-            "Unable to get the file name for a destination file. Error: {}",
-            e.to_string()
-        );
-
-        PathBuf::new()
-    });
-
     tracing::info!(
         "Decrypting data from {} to {}",
-        src_file_name.display(),
-        dest_file_name.display()
+        src_file.path_or_empty().display(),
+        dest_file.path_or_empty().display()
     );
 
     loop {
@@ -309,7 +240,7 @@ fn decrypt_file(
 
         let read_count = src_file
             .read(&mut buffer)
-            .map_err(|e| errors::IO::new(src_file_name.clone(), Arc::from(e)))?;
+            .map_err(|e| errors::IO::new(src_file.path().clone(), Arc::from(e)))?;
 
         if let Some(ref num_bytes) = num_read_bytes {
             num_bytes.fetch_add(read_count, Ordering::Relaxed);
@@ -321,7 +252,7 @@ fn decrypt_file(
             let decrypted = stream_decryptor.decrypt_next(buffer.as_slice())?;
             let write_count = dest_file
                 .write(&decrypted)
-                .map_err(|e| errors::IO::new(dest_file_name.clone(), Arc::from(e)))?;
+                .map_err(|e| errors::IO::new(dest_file.path().clone(), Arc::from(e)))?;
 
             if let Some(ref num_bytes) = num_written_bytes {
                 num_bytes.fetch_add(write_count, Ordering::Relaxed);
@@ -330,7 +261,7 @@ fn decrypt_file(
             let decrypted = stream_decryptor.decrypt_last(&buffer[..read_count])?;
             let write_count = dest_file
                 .write(&decrypted)
-                .map_err(|e| errors::IO::new(dest_file_name.clone(), Arc::from(e)))?;
+                .map_err(|e| errors::IO::new(dest_file.path().clone(), Arc::from(e)))?;
 
             if let Some(num_bytes) = num_written_bytes {
                 num_bytes.fetch_add(write_count, Ordering::Relaxed);
@@ -372,8 +303,7 @@ fn create_metadata_section_for_encrypted_file(
 fn create_filename_metadata_item(src_file: &File) -> Result<Vec<u8>> {
     // Note: No needed to check if the file name is too long, since the chances of it happening is
     //       low, and we will get an error outside the app if the file name is too long.
-    let filepath = filename::file_name(src_file)?;
-    let src_file_name = filepath.file_name().unwrap_or_else(|| OsStr::new(""));
+    let src_file_name = src_file.path_or_empty().file_name().unwrap_or_else(|| OsStr::new(""));
 
     let filename_length = src_file_name.len();
     let mut metadata_filename: Vec<u8> = Vec::with_capacity(4 + filename_length);
@@ -501,27 +431,20 @@ pub fn get_metadata_section_from_ssef_file(src_file: &mut File) -> Result<SSEFMe
 
 #[cfg(test)]
 mod tests {
-    use std::fs::File;
+    use std::io::Seek;
 
     use rand::{rngs::OsRng, RngCore};
-    use std::io::Seek;
-    use tempfile::tempfile;
+    use tempfile::{tempdir, tempfile};
+
+    use crate::fs::{File, FileAccessOptions};
 
     use super::*;
 
     #[test]
     fn test_encrypting_and_decrypting_ssef_file_succeeds() {
-        const SRC_FILENAME: &str = "test-source-file.txt";
-        let dir = tempfile::tempdir().unwrap();
-        let src_file_path = dir.path().join(SRC_FILENAME);
-        let mut src_file = File::options()
-            .create_new(true)
-            .read(true)
-            .write(true)
-            .open(src_file_path)
-            .unwrap();
-        let mut encrypted_file = tempfile().unwrap();
-        let mut decrypted_file = tempfile().unwrap();
+        let mut src_file = File::from(tempfile().unwrap());
+        let mut encrypted_file = File::from(tempfile().unwrap());
+        let mut decrypted_file = File::from(tempfile().unwrap());
 
         let contents = concat!(
             "I can see what's happening\n",
@@ -608,9 +531,9 @@ mod tests {
 
     #[test]
     fn test_encrypting_and_decrypting_data_succeeds() {
-        let mut src_file = tempfile().unwrap();
-        let mut encrypted_file = tempfile().unwrap();
-        let mut decrypted_file = tempfile().unwrap();
+        let mut src_file = File::from(tempfile().unwrap());
+        let mut encrypted_file = File::from(tempfile().unwrap());
+        let mut decrypted_file = File::from(tempfile().unwrap());
         let contents = concat!(
             "I can see what's happening\n",
             "What?\n",
@@ -683,8 +606,8 @@ mod tests {
 
         const BUFFER_LEN: usize = 1_048_576; // Equals to 1 MiB.
 
-        let mut empty_file = tempfile().unwrap();
-        let mut dest_file = tempfile().unwrap();
+        let mut empty_file = File::from(tempfile().unwrap());
+        let mut dest_file = File::from(tempfile().unwrap());
         let result = encrypt_file(
             &mut empty_file,
             &mut dest_file,
@@ -707,8 +630,8 @@ mod tests {
 
         const BUFFER_LEN: usize = 1_048_576; // Equals to 1 MiB.
 
-        let mut empty_file = tempfile().unwrap();
-        let mut dest_file = tempfile().unwrap();
+        let mut empty_file = File::from(tempfile().unwrap());
+        let mut dest_file = File::from(tempfile().unwrap());
         let result = decrypt_file(
             &mut empty_file,
             &mut dest_file,
@@ -726,10 +649,10 @@ mod tests {
     #[test]
     fn test_creating_metadata_section_encrypted_file_succeeds() {
         const SRC_FILENAME: &str = "test-source-file.txt";
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempdir().unwrap();
 
         let src_file_path = dir.path().join(SRC_FILENAME);
-        let src_file = File::create(src_file_path).unwrap();
+        let src_file = File::open(src_file_path, FileAccessOptions::ReadOnly).unwrap();
 
         let salt = b"you-cant-hurry-love";
 
@@ -822,9 +745,9 @@ mod tests {
     #[test]
     fn test_creating_filename_metadata_item_creates_correct_metadata() {
         const FILENAME: &str = "test-source-file.txt";
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempdir().unwrap();
         let file_path = dir.path().join(FILENAME);
-        let file = File::create(file_path).unwrap();
+        let file = File::open(file_path, FileAccessOptions::ReadOnly).unwrap();
 
         let res = create_filename_metadata_item(&file);
         assert!(res.is_ok());
@@ -865,7 +788,7 @@ mod tests {
 
     #[test]
     fn test_validating_ssef_file_identifier_succeeds() {
-        let mut file = tempfile::tempfile().unwrap();
+        let mut file = File::from(tempfile().unwrap());
         file.write_all(&[0x55, 0x3F, 0x01, 0x00]).unwrap();
         file.rewind().unwrap();
 
@@ -875,7 +798,7 @@ mod tests {
 
     #[test]
     fn test_validating_ssef_with_wrong_file_identifier_fails() {
-        let mut file = tempfile::tempfile().unwrap();
+        let mut file = File::from(tempfile::tempfile().unwrap());
         file.write_all(&[0x3F, 0x55, 0x01, 0x00]).unwrap();
         file.rewind().unwrap();
 
@@ -885,7 +808,7 @@ mod tests {
 
     #[test]
     fn test_validating_ssef_file_format_version_succeeds() {
-        let mut file = tempfile::tempfile().unwrap();
+        let mut file = File::from(tempfile().unwrap());
         file.write_all(&[0x55, 0x3F, 0x01, 0x00]).unwrap();
         file.rewind().unwrap();
 
@@ -895,7 +818,7 @@ mod tests {
 
     #[test]
     fn test_validating_ssef_with_unsupported_file_format_version_fails() {
-        let mut file = tempfile::tempfile().unwrap();
+        let mut file = File::from(tempfile().unwrap());
         file.write_all(&[0x3F, 0x55, 0x01, 0x01]).unwrap();
         file.rewind().unwrap();
 
@@ -906,18 +829,13 @@ mod tests {
     #[test]
     fn test_getting_metadata_section_from_ssef_file_succeeds() {
         const FILENAME: &str = "some-test-source-file.txt";
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempdir().unwrap();
         let file_path = dir.path().join(FILENAME);
-        let mut src_file = File::options()
-            .create_new(true)
-            .read(true)
-            .write(true)
-            .open(file_path)
-            .unwrap();
+        let mut src_file = File::open(file_path, FileAccessOptions::ReadWriteCreate).unwrap();
         let contents = b"tale as old as time, true as it can be";
         src_file.write_all(contents).unwrap();
 
-        let mut encrypted_file = tempfile().unwrap();
+        let mut encrypted_file = File::from(tempfile().unwrap());
 
         // We need to wind back the file pointer in src_file since we wrote contents to it.
         src_file.rewind().unwrap();

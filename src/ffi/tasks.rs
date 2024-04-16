@@ -1,14 +1,9 @@
 use libc::c_char;
 use std::ffi::CStr;
-use std::fs;
-use std::path::PathBuf;
 use std::ptr;
-use std::sync::Arc;
 
-use crate::errors::Error;
 use crate::ffi::errors::update_last_error;
 use crate::fs::{File, FileAccessOptions};
-use crate::logging;
 use crate::tasks::{TaskID, TASK_MANAGER};
 
 /// Returns the value in a Result, or causes the function to return `ret_val`.

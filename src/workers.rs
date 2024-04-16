@@ -1,15 +1,10 @@
-use crate::ds::{FIFOQueue, Queue};
-use std::fs::File;
-use std::io::Write;
 use std::num::NonZeroUsize;
-use std::sync::mpsc::TryRecvError;
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
 use std::thread;
 
 use once_cell::sync::Lazy;
 use tracing::Level;
 
-use crate::logging;
 use crate::tasks::{TaskProgress, TASK_MANAGER};
 
 pub static WORKER_POOL: Lazy<Mutex<WorkerPool>> = Lazy::new(|| {

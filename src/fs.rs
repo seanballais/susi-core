@@ -1,13 +1,15 @@
-use crate::crypto::IO_BUFFER_LEN;
-use crate::errors::{Copy, Error, IO, Result};
 use std::ffi::{OsStr, OsString};
+use std::fmt::Arguments;
 use std::fs;
-use std::io::{Read, Write};
-use std::os::windows::fs::FileExt;
-use std::os::windows::io::{AsHandle, AsRawHandle};
-use std::panic::{RefUnwindSafe, UnwindSafe};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+use filepath::FilePath;
+
+use crate::crypto::IO_BUFFER_LEN;
+use crate::errors::{Copy, Error, IO, Result};
+use crate::path::PathExt;
 
 // Create and truncate access options only make sense when we're writing to them. So, we won't
 // combine any of them with read access. Creating and truncating files should be done via
@@ -29,7 +31,7 @@ pub enum FileAccessOptions {
 #[derive(Debug)]
 pub struct File {
     file: fs::File,
-    path: PathBuf,
+    path: Option<PathBuf>,
     is_readable: bool,
     is_writable: bool
 }
@@ -77,7 +79,7 @@ impl File {
             }
         }
 
-        let file_path = PathBuf::from(path.as_ref());
+        let file_path = path.as_ref().to_pathbuf_option();
         match options.open(path.as_ref()) {
             Ok(f) => Ok(Self { file: f, path: file_path, is_readable: readable, is_writable: writable }),
             Err(e) => Err(Error::from(IO::new(file_path, Arc::new(e))))
@@ -85,17 +87,72 @@ impl File {
     }
 
     pub fn touch<P: AsRef<Path>>(path: P) -> Result<()> {
+        let file_path = path.as_ref().to_pathbuf_option();
         match fs::File::create(path.as_ref().clone()) {
             Ok(_) => Ok(()),
-            Err(e) => Err(Error::from(IO::new(path.as_ref(), Arc::new(e))))
+            Err(e) => Err(
+                Error::from(IO::new(file_path, Arc::new(e)))
+            )
         }
     }
 
     pub fn get_file(&self) -> &fs::File { &self.file }
     pub fn get_file_mut(&mut self) -> &mut fs::File { &mut self.file }
-    pub fn get_path(&self) -> &Path { self.path.as_path() }
+
+    pub fn path(&self) -> Option<&Path> {
+        match &self.path {
+            Some(p) => Some(p.as_path()),
+            None => None
+        }
+    }
+
+    pub fn path_or_empty(&self) -> &Path {
+        self.path().map_or(Path::new(""), |path| path)
+    }
+
     pub fn is_readable(&self) -> bool { self.is_readable }
     pub fn is_writable(&self) -> bool { self.is_writable }
+}
+
+impl Read for File {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> { self.file.read(buf) }
+
+    fn read_to_string(&mut self, buf: &mut String) -> std::io::Result<usize> {
+        self.file.read_to_string(buf)
+    }
+}
+
+impl Write for File {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> { self.file.write(buf) }
+    fn flush(&mut self) -> std::io::Result<()> { self.file.flush() }
+    fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> { self.file.write_all(buf) }
+    fn write_fmt(&mut self, fmt: Arguments<'_>) -> std::io::Result<()> { self.file.write_fmt(fmt) }
+}
+
+impl Seek for File {
+    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> { self.file.seek(pos) }
+    fn rewind(&mut self) -> std::io::Result<()> { self.file.rewind() }
+}
+
+impl From<fs::File> for File {
+    fn from(mut file: fs::File) -> Self {
+        let path: Option<PathBuf> = file.path().ok();
+        let mut is_readable = false;
+        let mut is_writable = false;
+
+        let mut buffer = String::new();
+        match file.read_to_string(&mut buffer) {
+            Ok(_) => { is_readable = true; }
+            _ => {}
+        }
+        match file.write(b"") {
+            Ok(_) => { is_writable = true; },
+            _ => {}
+        }
+
+        // No file rewind needed since the file cursor has not been moved.
+        Self { file, path, is_readable, is_writable }
+    }
 }
 
 pub fn append_file_extension_to_path<P: AsRef<Path>, S: AsRef<OsStr>>(file_path: P, ext: S) -> PathBuf {
@@ -134,16 +191,16 @@ pub fn copy_file_contents(
     if !src_file.is_readable() {
         return Err(
             Error::from(Copy::new(
-                src_file.get_path(),
-                dest_file.get_path(),
+                src_file.path(),
+                dest_file.path(),
                 "No read access to the source file"
             ))
         );
     } else if !dest_file.is_writable() {
         return Err(
             Error::from(Copy::new(
-                src_file.get_path(),
-                dest_file.get_path(),
+                src_file.path(),
+                dest_file.path(),
                 "No write access to the destination file"
             ))
         );
@@ -171,7 +228,8 @@ pub fn copy_file_contents(
 
 #[cfg(test)]
 mod tests {
-    use std::io::{Read, Seek, Write};
+    use std::fs;
+    use std::io::{Read, Seek, SeekFrom, Write};
     use std::path::{Path, PathBuf};
     use tempfile::tempdir;
     use crate::fs::{append_file_extension_to_path, copy_file_contents, FileAccessOptions, File};
@@ -462,7 +520,7 @@ mod tests {
         create_test_file_with_content(path.clone(), old_content);
 
         // And let's open it up again with write-only access, which works since it exists. However,
-        // it will be empty cause we truncated it. So, we're writing to an empty file.
+        // it will be empty because we truncated it. So, we're writing to an empty file.
         let mut file = File::open(path.clone(), FileAccessOptions::WriteTruncate).unwrap();
         assert!(!file.is_readable());
         assert!(file.is_writable());
@@ -471,7 +529,7 @@ mod tests {
         let res = file.get_file_mut().write_all(new_content.as_bytes());
         assert!(res.is_ok());
 
-        // We should fail trying to read the contents though..
+        // We should fail trying to read the contents though.
         let mut _read_content = String::new();
         file.get_file_mut().rewind().unwrap();
         let res = file.get_file().read_to_string(&mut _read_content);
@@ -502,7 +560,7 @@ mod tests {
         create_test_file_with_content(path.clone(), old_content);
 
         // And let's open it up again with write-only access, which works since it exists. However,
-        // it will be empty cause we truncated it. So, we're writing to an empty file.
+        // it will be empty because we truncated it. So, we're writing to an empty file.
         let mut file = File::open(path.clone(), FileAccessOptions::WriteCreateOrTruncate).unwrap();
         assert!(!file.is_readable());
         assert!(file.is_writable());
@@ -530,7 +588,7 @@ mod tests {
         let path = create_test_file_path("test-file-write-create-or-truncate-npf.txt");
 
         // And let's open it up again with write-only access, which works since it gets created.
-        // However, it will be empty cause we truncated it. So, we're writing to an empty file.
+        // However, it will be empty because we truncated it. So, we're writing to an empty file.
         let mut file = File::open(path.clone(), FileAccessOptions::WriteCreateOrTruncate).unwrap();
         assert!(!file.is_readable());
         assert!(file.is_writable());
@@ -549,6 +607,74 @@ mod tests {
         let mut read_content = String::new();
         file_with_read.get_file().read_to_string(&mut read_content).unwrap();
         assert_eq!(read_content.as_str(), content);
+    }
+
+    #[test]
+    fn test_file_read_write_seek_rewind() {
+        let path = create_test_file_path("test-file.txt");
+        let mut file = File::open(path, FileAccessOptions::ReadWriteCreate).unwrap();
+
+        const TEST_CONTENT: &str = "Hey boogie woogie bang bang";
+        const ADDITIONAL_CONTENT: &str = "check my soul";
+        file.write(TEST_CONTENT.as_bytes()).unwrap();
+
+        let mut bytes_buffer = [0; 9];
+        let mut str_buffer = String::new();
+
+        file.seek(SeekFrom::Start(18)).unwrap();
+        file.read(&mut bytes_buffer).unwrap();
+        assert_eq!(bytes_buffer.as_slice(), b"bang bang");
+
+        file.write_fmt(format_args!("{}", ADDITIONAL_CONTENT)).unwrap();
+
+        file.rewind().unwrap();
+        file.read_to_string(&mut str_buffer).unwrap();
+        assert_eq!(str_buffer, format!("{}{}", TEST_CONTENT, ADDITIONAL_CONTENT));
+
+        const ONE_MORE_CONTENT: &str = ".NET in Windows 95???";
+        file.write_all(ONE_MORE_CONTENT.as_bytes()).unwrap();
+
+        file.rewind().unwrap();
+
+        str_buffer.clear();
+        file.read_to_string(&mut str_buffer).unwrap();
+        assert_eq!(str_buffer, format!("{}{}{}", TEST_CONTENT, ADDITIONAL_CONTENT, ONE_MORE_CONTENT));
+    }
+
+    #[test]
+    fn test_file_from_read_only_file() {
+        let path = create_test_file_path("read-only-file.txt");
+        create_test_file(path.clone());
+
+        let fs_file = fs::File::options().read(true).open(path.clone()).unwrap();
+        let file = File::from(fs_file);
+        assert!(file.is_readable());
+        assert!(!file.is_writable());
+        assert_eq!(file.path_or_empty(), path.clone());
+    }
+
+    #[test]
+    fn test_file_from_write_only_file() {
+        let path = create_test_file_path("write-only-file.txt");
+        create_test_file(path.clone());
+
+        let fs_file = fs::File::options().write(true).open(path.clone()).unwrap();
+        let file = File::from(fs_file);
+        assert!(!file.is_readable());
+        assert!(file.is_writable());
+        assert_eq!(file.path_or_empty(), path.clone());
+    }
+
+    #[test]
+    fn test_file_from_read_write_file() {
+        let path = create_test_file_path("read-write-file.txt");
+        create_test_file(path.clone());
+
+        let fs_file = fs::File::options().read(true).write(true).open(path.clone()).unwrap();
+        let file = File::from(fs_file);
+        assert!(file.is_readable());
+        assert!(file.is_writable());
+        assert_eq!(file.path_or_empty(), path.clone());
     }
 
     #[test]

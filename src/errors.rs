@@ -8,19 +8,23 @@ use std::sync::Arc;
 
 use aead;
 use argon2;
+use crate::path::OptionPathBufExt;
 
 #[derive(Debug, Clone)]
 pub struct Copy {
-    src_file_path: PathBuf,
-    dest_file_path: PathBuf,
+    src_file_path: Option<PathBuf>,
+    dest_file_path: Option<PathBuf>,
     message: String
 }
 
 impl Copy {
-    pub fn new<P: AsRef<Path>, S: AsRef<str>>(src_file_path: P, dest_file_path: P, message: S) -> Self {
+    pub fn new<P: AsRef<Path>, S: AsRef<str>>(src_file_path: Option<P>, dest_file_path: Option<P>, message: S) -> Self {
+        let src_file_path = src_file_path.map(|path| PathBuf::from(path.as_ref()));
+        let dest_file_path = dest_file_path.map(|path| PathBuf::from(path.as_ref()));
+
         Self {
-            src_file_path: PathBuf::from(src_file_path.as_ref()),
-            dest_file_path: PathBuf::from(dest_file_path.as_ref()),
+            src_file_path,
+            dest_file_path,
             message: String::from(message.as_ref())
         }
     }
@@ -28,15 +32,16 @@ impl Copy {
 
 #[derive(Debug, Clone)]
 pub struct IO {
-    path: PathBuf,
+    path: Option<PathBuf>,
     error: Arc<io::Error>
 }
 
 impl IO {
-    pub fn new<P: AsRef<Path>>(path: P, e: Arc<io::Error>) -> Self {
+    pub fn new<P: AsRef<Path>>(path: Option<P>, error: Arc<io::Error>) -> Self {
+        let path = path.map(|path| PathBuf::from(path.as_ref()));
         Self {
-            path: PathBuf::from(path.as_ref()),
-            error: e
+            path,
+            error
         }
     }
 }
@@ -133,6 +138,6 @@ impl From<string::FromUtf8Error> for Error {
 
 impl From<io::Error> for Error {
     fn from(e: io::Error) -> Self {
-        Self::IO(IO::new(PathBuf::new(), Arc::new(e)))
+        Self::IO(IO::new(None::<&str>, Arc::new(e)))
     }
 }

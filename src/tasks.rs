@@ -1,9 +1,7 @@
-use filename::file_name;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::io::{Read, Seek, Write};
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -144,14 +142,14 @@ impl Task for EncryptionTask {
         // possible. We'll copy the temporary file to the actual destination after the encryption
         // is complete.
         let mut temp_dest_file = match tempfile::tempfile() {
-            Ok(f) => f,
-            Err(e) => return Err(Error::from(errors::IO::new(PathBuf::new(), Arc::new(e)))),
+            Ok(f) => File::from(f),
+            Err(e) => return Err(Error::from(errors::IO::new(None::<&str>, Arc::new(e)))),
         };
 
         let should_stop_copy = should_stop.clone();
 
         encrypt_to_ssef_file(
-            self.src_file.get_file_mut(),
+            &mut self.src_file,
             &mut temp_dest_file,
             self.password.as_slice(),
             self.salt.as_slice(),
@@ -172,9 +170,7 @@ impl Task for EncryptionTask {
         temp_dest_file.rewind()?; // We need to rewind this file since we moved the
                                   // file's cursor earlier.
 
-        let file_name =
-            file_name(self.src_file.get_file()).map_err(|e| errors::IO::new(PathBuf::new(), Arc::new(e)))?;
-        let dest_file_path = append_file_extension_to_path(file_name.as_path(), "ssef");
+        let dest_file_path = append_file_extension_to_path(self.src_file.path_or_empty(), "ssef");
         let mut dest_file = File::open(dest_file_path.clone(), FileAccessOptions::WriteTruncate)?;
 
         // No progress notification here yet, but this should provide the foundation.
@@ -182,14 +178,14 @@ impl Task for EncryptionTask {
         loop {
             let read_count = temp_dest_file
                 .read(&mut buffer)
-                .map_err(|e| errors::IO::new(PathBuf::new(), Arc::from(e)))?;
+                .map_err(|e| errors::IO::new(None::<&str>, Arc::from(e)))?;
             if read_count == 0 {
                 break;
             } else {
                 dest_file
                     .get_file_mut()
                     .write(&buffer[0..read_count])
-                    .map_err(|e| errors::IO::new(dest_file_path.clone(), Arc::from(e)))?;
+                    .map_err(|e| errors::IO::new(Some(dest_file_path.clone()), Arc::from(e)))?;
             }
         }
 
@@ -235,8 +231,8 @@ impl Task for DecryptionTask {
         should_stop: Option<Arc<AtomicBool>>,
     ) -> Result<()> {
         decrypt_from_ssef_file(
-            self.src_file.get_file_mut(),
-            self.dest_file.get_file_mut(),
+            &mut self.src_file,
+            &mut self.dest_file,
             self.password.as_slice(),
             &self.buffer_len,
             num_read_bytes,
