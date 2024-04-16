@@ -22,7 +22,7 @@ impl OptionPathBufExt for Option<PathBuf> {
     fn to_string_lossy(&self) -> String {
         match self {
             Some(path) => path.to_string_lossy().to_string(),
-            _ => "".to_string()
+            _ => "".to_string(),
         }
     }
 }

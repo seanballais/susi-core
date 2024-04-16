@@ -1,11 +1,11 @@
 use std::ffi::OsStr;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc};
+use std::sync::Arc;
 
 use aead;
-use aead::KeyInit;
 use aead::stream::{DecryptorBE32, EncryptorBE32};
+use aead::KeyInit;
 use aes_gcm;
 use aes_gcm::Aes256Gcm;
 use argon2;
@@ -303,7 +303,10 @@ fn create_metadata_section_for_encrypted_file(
 fn create_filename_metadata_item(src_file: &File) -> Result<Vec<u8>> {
     // Note: No needed to check if the file name is too long, since the chances of it happening is
     //       low, and we will get an error outside the app if the file name is too long.
-    let src_file_name = src_file.path_or_empty().file_name().unwrap_or_else(|| OsStr::new(""));
+    let src_file_name = src_file
+        .path_or_empty()
+        .file_name()
+        .unwrap_or_else(|| OsStr::new(""));
 
     let filename_length = src_file_name.len();
     let mut metadata_filename: Vec<u8> = Vec::with_capacity(4 + filename_length);
@@ -412,9 +415,7 @@ pub fn get_metadata_section_from_ssef_file(src_file: &mut File) -> Result<SSEFMe
                 salt = Vec::from(value);
             }
             [0x90, 0x9C] => {
-                nonce = value
-                    .try_into()
-                    .map_err(|_| Error::InvalidNonceLength)?;
+                nonce = value.try_into().map_err(|_| Error::InvalidNonceLength)?;
             }
             _ => {}
         }

@@ -6,26 +6,30 @@ use std::path::{Path, PathBuf};
 use std::string;
 use std::sync::Arc;
 
+use crate::path::OptionPathBufExt;
 use aead;
 use argon2;
-use crate::path::OptionPathBufExt;
 
 #[derive(Debug, Clone)]
 pub struct Copy {
     src_file_path: Option<PathBuf>,
     dest_file_path: Option<PathBuf>,
-    message: String
+    message: String,
 }
 
 impl Copy {
-    pub fn new<P: AsRef<Path>, S: AsRef<str>>(src_file_path: Option<P>, dest_file_path: Option<P>, message: S) -> Self {
+    pub fn new<P: AsRef<Path>, S: AsRef<str>>(
+        src_file_path: Option<P>,
+        dest_file_path: Option<P>,
+        message: S,
+    ) -> Self {
         let src_file_path = src_file_path.map(|path| PathBuf::from(path.as_ref()));
         let dest_file_path = dest_file_path.map(|path| PathBuf::from(path.as_ref()));
 
         Self {
             src_file_path,
             dest_file_path,
-            message: String::from(message.as_ref())
+            message: String::from(message.as_ref()),
         }
     }
 }
@@ -33,16 +37,13 @@ impl Copy {
 #[derive(Debug, Clone)]
 pub struct IO {
     path: Option<PathBuf>,
-    error: Arc<io::Error>
+    error: Arc<io::Error>,
 }
 
 impl IO {
     pub fn new<P: AsRef<Path>>(path: Option<P>, error: Arc<io::Error>) -> Self {
         let path = path.map(|path| PathBuf::from(path.as_ref()));
-        Self {
-            path,
-            error
-        }
+        Self { path, error }
     }
 }
 
@@ -90,7 +91,7 @@ impl Display for Error {
                     e.dest_file_path.to_string_lossy(),
                     e.message
                 )
-            },
+            }
             Self::InvalidNonceLength => {
                 write!(f, "Nonce length is either too short or too long")
             }
@@ -117,23 +118,33 @@ impl Display for Error {
 }
 
 impl From<Copy> for Error {
-    fn from(e: Copy) -> Self { Self::Copy(e) }
+    fn from(e: Copy) -> Self {
+        Self::Copy(e)
+    }
 }
 
 impl From<IO> for Error {
-    fn from(e: IO) -> Self { Self::IO(e) }
+    fn from(e: IO) -> Self {
+        Self::IO(e)
+    }
 }
 
 impl From<aead::Error> for Error {
-    fn from(e: aead::Error) -> Self { Self::AEAD(e) }
+    fn from(e: aead::Error) -> Self {
+        Self::AEAD(e)
+    }
 }
 
 impl From<argon2::Error> for Error {
-    fn from(e: argon2::Error) -> Self { Self::Argon2(e) }
+    fn from(e: argon2::Error) -> Self {
+        Self::Argon2(e)
+    }
 }
 
 impl From<string::FromUtf8Error> for Error {
-    fn from(e: string::FromUtf8Error) -> Self { Self::FromUTF8(e) }
+    fn from(e: string::FromUtf8Error) -> Self {
+        Self::FromUTF8(e)
+    }
 }
 
 impl From<io::Error> for Error {

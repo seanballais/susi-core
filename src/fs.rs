@@ -8,7 +8,7 @@ use std::sync::Arc;
 use filepath::FilePath;
 
 use crate::crypto::IO_BUFFER_LEN;
-use crate::errors::{Copy, Error, IO, Result};
+use crate::errors::{Copy, Error, Result, IO};
 use crate::path::PathExt;
 
 // Create and truncate access options only make sense when we're writing to them. So, we won't
@@ -22,7 +22,7 @@ pub enum FileAccessOptions {
     WriteOnly,
     WriteCreate,
     WriteTruncate,
-    WriteCreateOrTruncate
+    WriteCreateOrTruncate,
 }
 
 // NOTE: There were prior attempts to let us use FileObj like a std::fs::File, but there was a snag
@@ -33,7 +33,7 @@ pub struct File {
     file: fs::File,
     path: Option<PathBuf>,
     is_readable: bool,
-    is_writable: bool
+    is_writable: bool,
 }
 
 impl File {
@@ -45,17 +45,17 @@ impl File {
             FileAccessOptions::ReadOnly => {
                 readable = true;
                 options.read(true);
-            },
+            }
             FileAccessOptions::ReadWrite => {
                 readable = true;
                 writable = true;
                 options.read(true).write(true);
-            },
+            }
             FileAccessOptions::ReadWriteCreate => {
                 readable = true;
                 writable = true;
                 options.read(true).write(true).create(true);
-            },
+            }
             FileAccessOptions::ReadWriteCreateOrTruncate => {
                 readable = true;
                 writable = true;
@@ -64,15 +64,15 @@ impl File {
             FileAccessOptions::WriteOnly => {
                 writable = true;
                 options.write(true);
-            },
+            }
             FileAccessOptions::WriteCreate => {
                 writable = true;
                 options.write(true).create(true);
-            },
+            }
             FileAccessOptions::WriteTruncate => {
                 writable = true;
                 options.write(true).truncate(true);
-            },
+            }
             FileAccessOptions::WriteCreateOrTruncate => {
                 writable = true;
                 options.write(true).create(true).truncate(true);
@@ -81,28 +81,35 @@ impl File {
 
         let file_path = path.as_ref().to_pathbuf_option();
         match options.open(path.as_ref()) {
-            Ok(f) => Ok(Self { file: f, path: file_path, is_readable: readable, is_writable: writable }),
-            Err(e) => Err(Error::from(IO::new(file_path, Arc::new(e))))
+            Ok(f) => Ok(Self {
+                file: f,
+                path: file_path,
+                is_readable: readable,
+                is_writable: writable,
+            }),
+            Err(e) => Err(Error::from(IO::new(file_path, Arc::new(e)))),
         }
     }
 
     pub fn touch<P: AsRef<Path>>(path: P) -> Result<()> {
         let file_path = path.as_ref().to_pathbuf_option();
-        match fs::File::create(path.as_ref().clone()) {
+        match fs::File::create(path.as_ref()) {
             Ok(_) => Ok(()),
-            Err(e) => Err(
-                Error::from(IO::new(file_path, Arc::new(e)))
-            )
+            Err(e) => Err(Error::from(IO::new(file_path, Arc::new(e)))),
         }
     }
 
-    pub fn get_file(&self) -> &fs::File { &self.file }
-    pub fn get_file_mut(&mut self) -> &mut fs::File { &mut self.file }
+    pub fn get_file(&self) -> &fs::File {
+        &self.file
+    }
+    pub fn get_file_mut(&mut self) -> &mut fs::File {
+        &mut self.file
+    }
 
     pub fn path(&self) -> Option<&Path> {
         match &self.path {
             Some(p) => Some(p.as_path()),
-            None => None
+            None => None,
         }
     }
 
@@ -110,12 +117,18 @@ impl File {
         self.path().map_or(Path::new(""), |path| path)
     }
 
-    pub fn is_readable(&self) -> bool { self.is_readable }
-    pub fn is_writable(&self) -> bool { self.is_writable }
+    pub fn is_readable(&self) -> bool {
+        self.is_readable
+    }
+    pub fn is_writable(&self) -> bool {
+        self.is_writable
+    }
 }
 
 impl Read for File {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> { self.file.read(buf) }
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.file.read(buf)
+    }
 
     fn read_to_string(&mut self, buf: &mut String) -> std::io::Result<usize> {
         self.file.read_to_string(buf)
@@ -123,15 +136,27 @@ impl Read for File {
 }
 
 impl Write for File {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> { self.file.write(buf) }
-    fn flush(&mut self) -> std::io::Result<()> { self.file.flush() }
-    fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> { self.file.write_all(buf) }
-    fn write_fmt(&mut self, fmt: Arguments<'_>) -> std::io::Result<()> { self.file.write_fmt(fmt) }
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.file.write(buf)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.file.flush()
+    }
+    fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
+        self.file.write_all(buf)
+    }
+    fn write_fmt(&mut self, fmt: Arguments<'_>) -> std::io::Result<()> {
+        self.file.write_fmt(fmt)
+    }
 }
 
 impl Seek for File {
-    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> { self.file.seek(pos) }
-    fn rewind(&mut self) -> std::io::Result<()> { self.file.rewind() }
+    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+        self.file.seek(pos)
+    }
+    fn rewind(&mut self) -> std::io::Result<()> {
+        self.file.rewind()
+    }
 }
 
 impl From<fs::File> for File {
@@ -142,20 +167,32 @@ impl From<fs::File> for File {
 
         let mut buffer = String::new();
         match file.read_to_string(&mut buffer) {
-            Ok(_) => { is_readable = true; }
+            Ok(_) => {
+                is_readable = true;
+            }
             _ => {}
         }
         match file.write(b"") {
-            Ok(_) => { is_writable = true; },
+            Ok(_) => {
+                is_writable = true;
+            }
             _ => {}
         }
 
         // No file rewind needed since the file cursor has not been moved.
-        Self { file, path, is_readable, is_writable }
+        Self {
+            file,
+            path,
+            is_readable,
+            is_writable,
+        }
     }
 }
 
-pub fn append_file_extension_to_path<P: AsRef<Path>, S: AsRef<OsStr>>(file_path: P, ext: S) -> PathBuf {
+pub fn append_file_extension_to_path<P: AsRef<Path>, S: AsRef<OsStr>>(
+    file_path: P,
+    ext: S,
+) -> PathBuf {
     #[cfg(target_endian = "big")]
     {
         compile_error!("Big-endian systems are not yet supported (due to lack of access of a big-endian machine.");
@@ -164,8 +201,13 @@ pub fn append_file_extension_to_path<P: AsRef<Path>, S: AsRef<OsStr>>(file_path:
         return PathBuf::from(file_path.as_ref());
     }
 
-    let mut new_file_ext = OsString::from(file_path.as_ref().extension().unwrap_or_else(|| "".as_ref()));
-    let mut ext = ext.as_ref();
+    let mut new_file_ext = OsString::from(
+        file_path
+            .as_ref()
+            .extension()
+            .unwrap_or_else(|| "".as_ref()),
+    );
+    let ext = ext.as_ref();
 
     #[cfg(target_endian = "little")]
     {
@@ -184,26 +226,19 @@ pub fn append_file_extension_to_path<P: AsRef<Path>, S: AsRef<OsStr>>(file_path:
     new_file_path
 }
 
-pub fn copy_file_contents(
-    src_file: &mut File,
-    dest_file: &mut File
-) -> Result<()> {
+pub fn copy_file_contents(src_file: &mut File, dest_file: &mut File) -> Result<()> {
     if !src_file.is_readable() {
-        return Err(
-            Error::from(Copy::new(
-                src_file.path(),
-                dest_file.path(),
-                "No read access to the source file"
-            ))
-        );
+        return Err(Error::from(Copy::new(
+            src_file.path(),
+            dest_file.path(),
+            "No read access to the source file",
+        )));
     } else if !dest_file.is_writable() {
-        return Err(
-            Error::from(Copy::new(
-                src_file.path(),
-                dest_file.path(),
-                "No write access to the destination file"
-            ))
-        );
+        return Err(Error::from(Copy::new(
+            src_file.path(),
+            dest_file.path(),
+            "No write access to the destination file",
+        )));
     }
 
     // No progress notification here yet, but this should provide the foundation.
@@ -228,11 +263,11 @@ pub fn copy_file_contents(
 
 #[cfg(test)]
 mod tests {
+    use crate::fs::{append_file_extension_to_path, copy_file_contents, File, FileAccessOptions};
     use std::fs;
     use std::io::{Read, Seek, SeekFrom, Write};
     use std::path::{Path, PathBuf};
     use tempfile::tempdir;
-    use crate::fs::{append_file_extension_to_path, copy_file_contents, FileAccessOptions, File};
 
     #[test]
     fn test_file_open_read_only_preexisting_file_works_successfully() {
@@ -252,7 +287,9 @@ mod tests {
         assert_eq!(read_content.as_str(), content);
 
         // Attempt to write, but we're expecting it to fail.
-        let res = file.get_file_mut().write_all("Ang Pilipinas ay matatag".as_bytes());
+        let res = file
+            .get_file_mut()
+            .write_all("Ang Pilipinas ay matatag".as_bytes());
         assert!(res.is_err());
     }
 
@@ -300,7 +337,7 @@ mod tests {
         // Create the file with some content.
         let path = create_test_file_path("test-file-read-write-create-pf.txt");
         let orig_content = "bling bang bang, bling bang bang, bling bang bang bom";
-        create_test_file_with_content(path.clone(), orig_content.clone());
+        create_test_file_with_content(path.clone(), orig_content);
 
         // We should be able to open the file since it exists.
         let mut file = File::open(path.clone(), FileAccessOptions::ReadWriteCreate).unwrap();
@@ -360,10 +397,11 @@ mod tests {
         // Create a file with some content.
         let path = create_test_file_path("test-file-read-write-create-or-truncate-pf.txt");
         let orig_content = "bling bang bang, bling bang bang, bling bang bang bom";
-        create_test_file_with_content(path.clone(), orig_content.clone());
+        create_test_file_with_content(path.clone(), orig_content);
 
         // We should be able to open the file since it exists.
-        let mut file = File::open(path.clone(), FileAccessOptions::ReadWriteCreateOrTruncate).unwrap();
+        let mut file =
+            File::open(path.clone(), FileAccessOptions::ReadWriteCreateOrTruncate).unwrap();
         assert!(file.is_readable());
         assert!(file.is_writable());
 
@@ -391,7 +429,8 @@ mod tests {
         let path = create_test_file_path("test-file-read-write-create-or-truncate-npf.txt");
 
         // We should be able to open the file, even if it didn't exist, since it gets created.
-        let mut file = File::open(path.clone(), FileAccessOptions::ReadWriteCreateOrTruncate).unwrap();
+        let mut file =
+            File::open(path.clone(), FileAccessOptions::ReadWriteCreateOrTruncate).unwrap();
         assert!(file.is_readable());
         assert!(file.is_writable());
 
@@ -439,7 +478,7 @@ mod tests {
         let mut file_with_read = File::open(path.clone(), FileAccessOptions::ReadOnly).unwrap();
         let mut read_content = String::new();
         let expected_content = "baang bang bang, bling bang bang, bling bang bang bom";
-        file_with_read.get_file().read_to_string(&mut read_content).unwrap();
+        file_with_read.read_to_string(&mut read_content).unwrap();
         assert_eq!(read_content.as_str(), expected_content);
     }
 
@@ -481,7 +520,7 @@ mod tests {
         let mut file_with_read = File::open(path.clone(), FileAccessOptions::ReadOnly).unwrap();
         let mut read_content = String::new();
         let expected_content = "baang bang bang, bling bang bang, bling bang bang bom";
-        file_with_read.get_file().read_to_string(&mut read_content).unwrap();
+        file_with_read.read_to_string(&mut read_content).unwrap();
         assert_eq!(read_content.as_str(), expected_content);
     }
 
@@ -508,7 +547,7 @@ mod tests {
         // We then open the file again with read access to see if we wrote the data correctly.
         let mut file_with_read = File::open(path.clone(), FileAccessOptions::ReadOnly).unwrap();
         let mut read_content = String::new();
-        file_with_read.get_file().read_to_string(&mut read_content).unwrap();
+        file_with_read.read_to_string(&mut read_content).unwrap();
         assert_eq!(read_content.as_str(), content);
     }
 
@@ -538,7 +577,7 @@ mod tests {
         // We then open the file again with read access to see if we wrote the data correctly.
         let mut file_with_read = File::open(path.clone(), FileAccessOptions::ReadOnly).unwrap();
         let mut read_content = String::new();
-        file_with_read.get_file().read_to_string(&mut read_content).unwrap();
+        file_with_read.read_to_string(&mut read_content).unwrap();
         assert_eq!(read_content.as_str(), new_content);
     }
 
@@ -578,7 +617,7 @@ mod tests {
         // We then open the file again with read access to see if we wrote the data correctly.
         let mut file_with_read = File::open(path.clone(), FileAccessOptions::ReadOnly).unwrap();
         let mut read_content = String::new();
-        file_with_read.get_file().read_to_string(&mut read_content).unwrap();
+        file_with_read.read_to_string(&mut read_content).unwrap();
         assert_eq!(read_content.as_str(), new_content);
     }
 
@@ -605,7 +644,7 @@ mod tests {
         // We then open the file again with read access to see if we wrote the data correctly.
         let mut file_with_read = File::open(path.clone(), FileAccessOptions::ReadOnly).unwrap();
         let mut read_content = String::new();
-        file_with_read.get_file().read_to_string(&mut read_content).unwrap();
+        file_with_read.read_to_string(&mut read_content).unwrap();
         assert_eq!(read_content.as_str(), content);
     }
 
@@ -625,11 +664,15 @@ mod tests {
         file.read(&mut bytes_buffer).unwrap();
         assert_eq!(bytes_buffer.as_slice(), b"bang bang");
 
-        file.write_fmt(format_args!("{}", ADDITIONAL_CONTENT)).unwrap();
+        file.write_fmt(format_args!("{}", ADDITIONAL_CONTENT))
+            .unwrap();
 
         file.rewind().unwrap();
         file.read_to_string(&mut str_buffer).unwrap();
-        assert_eq!(str_buffer, format!("{}{}", TEST_CONTENT, ADDITIONAL_CONTENT));
+        assert_eq!(
+            str_buffer,
+            format!("{}{}", TEST_CONTENT, ADDITIONAL_CONTENT)
+        );
 
         const ONE_MORE_CONTENT: &str = ".NET in Windows 95???";
         file.write_all(ONE_MORE_CONTENT.as_bytes()).unwrap();
@@ -638,7 +681,10 @@ mod tests {
 
         str_buffer.clear();
         file.read_to_string(&mut str_buffer).unwrap();
-        assert_eq!(str_buffer, format!("{}{}{}", TEST_CONTENT, ADDITIONAL_CONTENT, ONE_MORE_CONTENT));
+        assert_eq!(
+            str_buffer,
+            format!("{}{}{}", TEST_CONTENT, ADDITIONAL_CONTENT, ONE_MORE_CONTENT)
+        );
     }
 
     #[test]
@@ -670,7 +716,11 @@ mod tests {
         let path = create_test_file_path("read-write-file.txt");
         create_test_file(path.clone());
 
-        let fs_file = fs::File::options().read(true).write(true).open(path.clone()).unwrap();
+        let fs_file = fs::File::options()
+            .read(true)
+            .write(true)
+            .open(path.clone())
+            .unwrap();
         let file = File::from(fs_file);
         assert!(file.is_readable());
         assert!(file.is_writable());
@@ -700,17 +750,22 @@ mod tests {
         // Let's create the test source file.
         let mut src_file_path = temp_dir.clone();
         src_file_path.push("src-a.txt");
-        let mut src_file = File::open(src_file_path, FileAccessOptions::ReadWriteCreateOrTruncate).unwrap();
+        let mut src_file =
+            File::open(src_file_path, FileAccessOptions::ReadWriteCreateOrTruncate).unwrap();
 
         // Used to be "kimiwa", but RustRover suggested it to be "kimchi" instead. It's funnier,
         // so we'll be keeping that.
         const TEST_CONTENT: &str = "Kuno mama kimchi";
-        src_file.get_file_mut().write(TEST_CONTENT.as_bytes()).unwrap();
+        src_file
+            .get_file_mut()
+            .write(TEST_CONTENT.as_bytes())
+            .unwrap();
 
         // And then let's create the test destination file.
         let mut dest_file_path = temp_dir.clone();
         dest_file_path.push("dest-a.txt");
-        let mut dest_file = File::open(dest_file_path, FileAccessOptions::ReadWriteCreateOrTruncate).unwrap();
+        let mut dest_file =
+            File::open(dest_file_path, FileAccessOptions::ReadWriteCreateOrTruncate).unwrap();
 
         // And now we try to copy.
         //

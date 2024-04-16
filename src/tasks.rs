@@ -353,9 +353,9 @@ pub enum TestTaskType {
 #[cfg(test)]
 mod tests {
     use crate::crypto::IO_BUFFER_LEN;
+    use crate::fs::{File, FileAccessOptions};
     use crate::tasks::EncryptionTask;
     use std::io::{Read, Seek, Write};
-    use crate::fs::{File, FileAccessOptions};
 
     #[test]
     fn test_creating_new_encryption_task_properly_works_successfully() {
@@ -363,7 +363,8 @@ mod tests {
 
         let dir = tempfile::tempdir().unwrap();
         let src_file_path = dir.path().join(SRC_FILENAME);
-        let mut src_file = File::open(src_file_path.clone(), FileAccessOptions::ReadWriteCreate).unwrap();
+        let mut src_file =
+            File::open(src_file_path.clone(), FileAccessOptions::ReadWriteCreate).unwrap();
 
         const SRC_CONTENTS: &str = "I'm a Barbie girl in a Barbie world.";
         let res = src_file.get_file_mut().write_all(SRC_CONTENTS.as_bytes());
@@ -380,7 +381,7 @@ mod tests {
         let mut task = res.unwrap();
 
         let mut task_src_file_contents: String = String::from("");
-        let res = task.src_file.get_file().read_to_string(&mut task_src_file_contents);
+        let res = task.src_file.read_to_string(&mut task_src_file_contents);
         assert!(res.is_ok());
 
         assert_eq!(SRC_CONTENTS, task_src_file_contents.trim());
