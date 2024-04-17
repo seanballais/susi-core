@@ -37,7 +37,7 @@ pub trait Task {
         should_stop: Option<Arc<AtomicBool>>,
     ) -> Result<()>;
 
-    fn get_id(&self) -> TaskID;
+    fn get_id(&self) -> &TaskID;
 
     #[cfg(test)]
     fn get_task_type_for_test(&self) -> TestTaskType;
@@ -75,9 +75,9 @@ impl TaskManager {
         self.task_queue.pop()
     }
 
-    pub fn get_task_status(&self, id: TaskID) -> Option<Arc<Mutex<TaskStatus>>> {
+    pub fn get_task_status(&self, id: &TaskID) -> Option<Arc<Mutex<TaskStatus>>> {
         let task_statuses = self.task_statuses.lock().unwrap();
-        match task_statuses.get(&id) {
+        match task_statuses.get(id) {
             Some(status) => Some(status.clone()),
             None => None,
         }
@@ -200,8 +200,8 @@ impl Task for EncryptionTask {
         Ok(())
     }
 
-    fn get_id(&self) -> TaskID {
-        self.id
+    fn get_id(&self) -> &TaskID {
+        &self.id
     }
 
     #[cfg(test)]
@@ -249,8 +249,8 @@ impl Task for DecryptionTask {
         )
     }
 
-    fn get_id(&self) -> TaskID {
-        self.id
+    fn get_id(&self) -> &TaskID {
+        &self.id
     }
 
     #[cfg(test)]

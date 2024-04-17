@@ -57,7 +57,7 @@ impl Worker {
             tracing::span!(Level::INFO, "worker_thread", worker_id = id);
             loop {
                 let mut task = TASK_MANAGER.pop_task();
-                let task_status_ptr = TASK_MANAGER.get_task_status(task.get_id()).unwrap();
+                let task_status_ptr = TASK_MANAGER.get_task_status(&task.get_id()).unwrap();
                 let mut task_status = task_status_ptr.lock().unwrap();
 
                 let num_read_bytes = task_status.get_num_read_bytes_ref();
