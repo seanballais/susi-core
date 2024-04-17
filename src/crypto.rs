@@ -653,7 +653,7 @@ mod tests {
         let dir = tempdir().unwrap();
 
         let src_file_path = dir.path().join(SRC_FILENAME);
-        let src_file = File::open(src_file_path, FileAccessOptions::ReadOnly).unwrap();
+        let src_file = File::open(src_file_path, FileAccessOptions::ReadWriteCreate).unwrap();
 
         let salt = b"you-cant-hurry-love";
 
@@ -748,7 +748,7 @@ mod tests {
         const FILENAME: &str = "test-source-file.txt";
         let dir = tempdir().unwrap();
         let file_path = dir.path().join(FILENAME);
-        let file = File::open(file_path, FileAccessOptions::ReadOnly).unwrap();
+        let file = File::open(file_path, FileAccessOptions::ReadWriteCreate).unwrap();
 
         let res = create_filename_metadata_item(&file);
         assert!(res.is_ok());

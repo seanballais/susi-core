@@ -55,3 +55,10 @@ pub extern "C" fn queue_encryption_task(
         }
     }
 }
+
+#[no_mangle]
+pub unsafe extern "C" fn drop_task_id(id: *mut TaskID) {
+    if !id.is_null() {
+        drop(Box::from_raw(id));
+    }
+}

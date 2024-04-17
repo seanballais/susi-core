@@ -51,6 +51,7 @@ impl IO {
 pub enum Error {
     None, // Only use this as a default value.
     Copy(Copy),
+    FileExists(PathBuf),
     InvalidNonceLength,
     InvalidPasswordLength,
     InvalidSSEFFile,
@@ -91,6 +92,9 @@ impl Display for Error {
                     e.dest_file_path.to_string_lossy(),
                     e.message
                 )
+            },
+            Self::FileExists(p) => {
+                write!(f, "{} already exists", p.display())
             }
             Self::InvalidNonceLength => {
                 write!(f, "Nonce length is either too short or too long")

@@ -2,11 +2,13 @@ use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::io::{Read, Seek, Write};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use rand::distributions::{Alphanumeric, DistString};
 use rand::{rngs::OsRng, RngCore};
+use tempfile::tempfile;
 use uuid::Uuid;
 
 use crate::crypto::{
@@ -141,11 +143,7 @@ impl Task for EncryptionTask {
         // We'll write to a temporary file first. This helps us prevent incomplete files as much as
         // possible. We'll copy the temporary file to the actual destination after the encryption
         // is complete.
-        let mut temp_dest_file = match tempfile::tempfile() {
-            Ok(f) => File::from(f),
-            Err(e) => return Err(Error::from(errors::IO::new(None::<&str>, Arc::new(e)))),
-        };
-
+        let mut temp_dest_file = File::from(tempfile()?);
         let should_stop_copy = should_stop.clone();
 
         encrypt_to_ssef_file(
@@ -171,7 +169,17 @@ impl Task for EncryptionTask {
                                   // file's cursor earlier.
 
         let dest_file_path = append_file_extension_to_path(self.src_file.path_or_empty(), "ssef");
-        let mut dest_file = File::open(dest_file_path.clone(), FileAccessOptions::WriteTruncate)?;
+        if dest_file_path.exists() {
+            return Err(Error::FileExists(dest_file_path.clone()));
+        }
+
+        let mut dest_file = File::open(dest_file_path.clone(), FileAccessOptions::WriteCreate)?;
+
+        tracing::info!(
+            "Saving encrypted file in {} to the destination, {}",
+            temp_dest_file.path_or_empty().display(),
+            dest_file.path_or_empty().display()
+        );
 
         // No progress notification here yet, but this should provide the foundation.
         let mut buffer = [0u8; IO_BUFFER_LEN];
@@ -356,6 +364,7 @@ mod tests {
     use crate::fs::{File, FileAccessOptions};
     use crate::tasks::EncryptionTask;
     use std::io::{Read, Seek, Write};
+    use tempfile::tempfile;
 
     #[test]
     fn test_creating_new_encryption_task_properly_works_successfully() {
@@ -393,11 +402,7 @@ mod tests {
 
     #[test]
     fn test_creating_new_encryption_task_with_short_password_fails() {
-        const SRC_FILENAME: &str = "some-test.txt";
-
-        let dir = tempfile::tempdir().unwrap();
-        let src_file_path = dir.path().join(SRC_FILENAME);
-        let src_file = File::open(src_file_path, FileAccessOptions::ReadOnly).unwrap();
+        let src_file = File::from(tempfile().unwrap());
         let password = String::from("short");
 
         let res = EncryptionTask::new(src_file, password.into_bytes());
