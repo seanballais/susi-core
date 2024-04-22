@@ -1,12 +1,12 @@
 use libc::c_char;
-use std::ffi::CStr;
-use std::ptr;
+use std::ffi::{CStr, CString};
+use std::{mem, ptr};
 use std::sync::atomic::Ordering;
 
 use crate::ffi::errors::update_last_error;
 use crate::fs::{File, FileAccessOptions};
 use crate::tasks as susi_tasks;
-use crate::tasks::{TaskID, TASK_MANAGER};
+use crate::tasks::TASK_MANAGER;
 
 /// Returns the value in a Result, or causes the function to return `ret_val`.
 macro_rules! open_file_or_return_on_err {
@@ -29,11 +29,41 @@ pub enum TaskProgress {
     FAILED
 }
 
+#[repr(C)]
 pub struct TaskStatus {
-    num_read_bytes: usize,
-    num_written_bytes: usize,
-    should_stop: bool,
-    progress: TaskProgress
+    pub num_read_bytes: usize,
+    pub num_written_bytes: usize,
+    pub should_stop: bool,
+    pub last_error: *const c_char,
+    pub progress: TaskProgress
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn drop_task_status(status: *mut TaskStatus) {
+    if !status.is_null() {
+        drop(Box::from_raw(status));
+    }
+}
+
+#[repr(C)]
+pub struct TaskID {
+    upper_id: u64,
+    lower_id: u64,
+}
+
+impl From<susi_tasks::TaskID> for TaskID {
+    fn from(id: susi_tasks::TaskID) -> Self {
+        let upper_id = id.upper_id;
+        let lower_id = id.lower_id;
+        Self { upper_id, lower_id }
+    }
+}
+
+fn clone_task_id_into_susi_task_id(id: &TaskID) -> susi_tasks::TaskID {
+    susi_tasks::TaskID {
+        upper_id: id.upper_id,
+        lower_id: id.lower_id
+    }
 }
 
 #[no_mangle]
@@ -63,7 +93,7 @@ pub extern "C" fn queue_encryption_task(
     match TASK_MANAGER.queue_encryption_task(src_file, password_string.into_bytes()) {
         Ok(task_id) => {
             tracing::info!("Task (ID: {}) queued", task_id.clone());
-            Box::into_raw(Box::new(task_id))
+            Box::into_raw(Box::new(TaskID::from(task_id)))
         }
         Err(e) => {
             update_last_error(e);
@@ -74,18 +104,27 @@ pub extern "C" fn queue_encryption_task(
 }
 
 #[no_mangle]
-pub extern "C" fn get_task_status(ptr: *mut TaskID) -> *mut TaskStatus {
-    let task_id = unsafe {
+pub extern "C" fn get_task_status(ptr: *const TaskID) -> *mut TaskStatus {
+    tracing::info!("ptr: {:?}", ptr);
+    let ffi_task_id = unsafe {
         assert!(!ptr.is_null());
         &*ptr
     };
+    let task_id = clone_task_id_into_susi_task_id(ffi_task_id);
 
-    let status_option = TASK_MANAGER.get_task_status(task_id);
+    let status_option = TASK_MANAGER.get_task_status(&task_id);
     if let Some(guard) = status_option {
         let status = guard.lock().unwrap();
         let num_read_bytes = status.get_num_read_bytes_ref().load(Ordering::Relaxed);
         let num_written_bytes = status.get_num_written_bytes_ref().load(Ordering::Relaxed);
         let should_stop = status.get_should_stop_ref().load(Ordering::Relaxed);
+
+        let last_error_message = status.get_last_error().to_string();
+        let last_error_c_string = CString::new(last_error_message).unwrap();
+        let last_error = last_error_c_string.as_ptr();
+
+        mem::forget(last_error_c_string);
+
         let progress = match status.get_progress() {
             susi_tasks::TaskProgress::QUEUED => { TaskProgress::QUEUED }
             susi_tasks::TaskProgress::RUNNING => { TaskProgress::RUNNING }
@@ -97,6 +136,7 @@ pub extern "C" fn get_task_status(ptr: *mut TaskID) -> *mut TaskStatus {
             num_read_bytes,
             num_written_bytes,
             should_stop,
+            last_error,
             progress,
         };
         return Box::into_raw(Box::new(ffi_status));

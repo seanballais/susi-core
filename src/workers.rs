@@ -66,6 +66,8 @@ impl Worker {
 
                 task_status.set_progress(TaskProgress::RUNNING);
 
+                drop(task_status);
+
                 tracing::info!("Thread {} running task {}", id, task.get_id());
                 let res = task.run(
                     Some(num_read_bytes.clone()),
@@ -73,6 +75,7 @@ impl Worker {
                     Some(should_stop.clone()),
                 );
 
+                let mut task_status = task_status_ptr.lock().unwrap();
                 match res {
                     Ok(()) => {
                         task_status.set_progress(TaskProgress::DONE);

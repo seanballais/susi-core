@@ -2,7 +2,6 @@ use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::io::{Read, Seek, Write};
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -76,6 +75,7 @@ impl TaskManager {
     }
 
     pub fn get_task_status(&self, id: &TaskID) -> Option<Arc<Mutex<TaskStatus>>> {
+        tracing::info!("id: {}", id);
         let task_statuses = self.task_statuses.lock().unwrap();
         match task_statuses.get(id) {
             Some(status) => Some(status.clone()),
@@ -261,8 +261,8 @@ impl Task for DecryptionTask {
 
 #[derive(Debug, Eq, Clone, Copy, Hash)]
 pub struct TaskID {
-    upper_id: u64,
-    lower_id: u64,
+    pub(crate) upper_id: u64,
+    pub(crate) lower_id: u64,
 }
 
 impl TaskID {
