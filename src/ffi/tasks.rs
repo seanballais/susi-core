@@ -105,7 +105,6 @@ pub extern "C" fn queue_encryption_task(
 
 #[no_mangle]
 pub extern "C" fn get_task_status(ptr: *const TaskID) -> *mut TaskStatus {
-    tracing::info!("ptr: {:?}", ptr);
     let ffi_task_id = unsafe {
         assert!(!ptr.is_null());
         &*ptr

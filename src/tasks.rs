@@ -75,10 +75,19 @@ impl TaskManager {
     }
 
     pub fn get_task_status(&self, id: &TaskID) -> Option<Arc<Mutex<TaskStatus>>> {
-        tracing::info!("id: {}", id);
-        let task_statuses = self.task_statuses.lock().unwrap();
+        let mut task_statuses = self.task_statuses.lock().unwrap();
         match task_statuses.get(id) {
-            Some(status) => Some(status.clone()),
+            Some(status) => {
+                let cloned_status = status.clone();
+                let progress = status.lock().unwrap().get_progress();
+
+                if progress == TaskProgress::DONE || progress == TaskProgress::FAILED {
+                    // If the task is done, we should delete the task status from our storage.
+                    task_statuses.remove(id);
+                }
+
+                Some(cloned_status)
+            },
             None => None,
         }
     }
