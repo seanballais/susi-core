@@ -81,13 +81,16 @@ impl TaskManager {
                 let cloned_status = status.clone();
                 let progress = status.lock().unwrap().get_progress();
 
-                if progress == TaskProgress::DONE || progress == TaskProgress::FAILED {
+                if progress == TaskProgress::Done
+                    || progress == TaskProgress::Failed
+                    || progress == TaskProgress::Interrupted
+                {
                     // If the task is done, we should delete the task status from our storage.
                     task_statuses.remove(id);
                 }
 
                 Some(cloned_status)
-            },
+            }
             None => None,
         }
     }
@@ -182,7 +185,10 @@ impl Task for EncryptionTask {
             return Err(Error::FileExists(dest_file_path.clone()));
         }
 
-        let mut dest_file = File::open(dest_file_path.clone(), FileAccessOptions::WriteCreate)?;
+        let mut dest_file = File::open(
+            dest_file_path.clone(),
+            FileAccessOptions::WriteCreateOrTruncate,
+        )?;
 
         tracing::info!(
             "Saving encrypted file in {} to the destination, {}",
@@ -310,7 +316,7 @@ impl TaskStatus {
             num_written_bytes: Arc::new(AtomicUsize::new(0)),
             should_stop: Arc::new(AtomicBool::new(false)),
             last_error: Mutex::new(Error::None),
-            progress: Mutex::new(TaskProgress::QUEUED),
+            progress: Mutex::new(TaskProgress::Queued),
         }
     }
 
@@ -354,10 +360,12 @@ impl TaskStatus {
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum TaskProgress {
-    QUEUED,
-    RUNNING,
-    DONE,
-    FAILED,
+    Queued,
+    Processing,
+    Finalizing,
+    Done,
+    Failed,
+    Interrupted,
 }
 
 #[cfg(test)]

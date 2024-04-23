@@ -1,7 +1,7 @@
 use libc::c_char;
 use std::ffi::{CStr, CString};
-use std::{mem, ptr};
 use std::sync::atomic::Ordering;
+use std::{mem, ptr};
 
 use crate::ffi::errors::update_last_error;
 use crate::fs::{File, FileAccessOptions};
@@ -23,10 +23,12 @@ macro_rules! open_file_or_return_on_err {
 
 #[repr(C)]
 pub enum TaskProgress {
-    QUEUED,
-    RUNNING,
-    DONE,
-    FAILED
+    Queued,
+    Processing,
+    Finalizing,
+    Done,
+    Failed,
+    Interrupted,
 }
 
 #[repr(C)]
@@ -35,7 +37,7 @@ pub struct TaskStatus {
     pub num_written_bytes: usize,
     pub should_stop: bool,
     pub last_error: *const c_char,
-    pub progress: TaskProgress
+    pub progress: TaskProgress,
 }
 
 #[no_mangle]
@@ -62,19 +64,19 @@ impl From<susi_tasks::TaskID> for TaskID {
 fn clone_task_id_into_susi_task_id(id: &TaskID) -> susi_tasks::TaskID {
     susi_tasks::TaskID {
         upper_id: id.upper_id,
-        lower_id: id.lower_id
+        lower_id: id.lower_id,
     }
 }
 
 #[no_mangle]
 pub extern "C" fn queue_encryption_task(
-    src_file: *const c_char,
+    target_file: *const c_char,
     password: *const c_char,
 ) -> *mut TaskID {
     let src_file_c_str = unsafe {
-        assert!(!src_file.is_null());
+        assert!(!target_file.is_null());
 
-        CStr::from_ptr(src_file)
+        CStr::from_ptr(target_file)
     };
     let src_file_path = src_file_c_str.to_string_lossy().into_owned();
     let password_c_str = unsafe {
@@ -125,10 +127,12 @@ pub extern "C" fn get_task_status(ptr: *const TaskID) -> *mut TaskStatus {
         mem::forget(last_error_c_string);
 
         let progress = match status.get_progress() {
-            susi_tasks::TaskProgress::QUEUED => { TaskProgress::QUEUED }
-            susi_tasks::TaskProgress::RUNNING => { TaskProgress::RUNNING }
-            susi_tasks::TaskProgress::DONE => { TaskProgress::DONE }
-            susi_tasks::TaskProgress::FAILED => { TaskProgress::FAILED }
+            susi_tasks::TaskProgress::Queued => TaskProgress::Queued,
+            susi_tasks::TaskProgress::Processing => TaskProgress::Processing,
+            susi_tasks::TaskProgress::Finalizing => TaskProgress::Finalizing,
+            susi_tasks::TaskProgress::Done => TaskProgress::Done,
+            susi_tasks::TaskProgress::Failed => TaskProgress::Failed,
+            susi_tasks::TaskProgress::Interrupted => TaskProgress::Interrupted,
         };
 
         let ffi_status = TaskStatus {

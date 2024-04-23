@@ -92,7 +92,7 @@ impl Display for Error {
                     e.dest_file_path.to_string_lossy(),
                     e.message
                 )
-            },
+            }
             Self::FileExists(p) => {
                 write!(f, "{} already exists", p.display())
             }

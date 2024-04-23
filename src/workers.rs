@@ -64,7 +64,7 @@ impl Worker {
                 let num_written_bytes = task_status.get_num_written_bytes_ref();
                 let should_stop = task_status.get_should_stop_ref();
 
-                task_status.set_progress(TaskProgress::RUNNING);
+                task_status.set_progress(TaskProgress::Processing);
 
                 drop(task_status);
 
@@ -78,11 +78,11 @@ impl Worker {
                 let mut task_status = task_status_ptr.lock().unwrap();
                 match res {
                     Ok(()) => {
-                        task_status.set_progress(TaskProgress::DONE);
+                        task_status.set_progress(TaskProgress::Done);
                     }
                     Err(e) => {
                         task_status.set_last_error(e);
-                        task_status.set_progress(TaskProgress::FAILED);
+                        task_status.set_progress(TaskProgress::Failed);
                     }
                 }
             }
