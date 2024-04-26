@@ -25,9 +25,6 @@ pub enum FileAccessOptions {
     WriteCreateOrTruncate,
 }
 
-// NOTE: There were prior attempts to let us use FileObj like a std::fs::File, but there was a snag
-//       trying to implement the bytes() function of the Read trait. So, we're implementing this
-//       one this way for now.
 #[derive(Debug)]
 pub struct File {
     file: fs::File,
