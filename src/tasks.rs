@@ -165,6 +165,12 @@ impl Task for EncryptionTask {
         num_processed_bytes: Option<Arc<AtomicUsize>>,
         should_stop: Option<Arc<AtomicBool>>,
     ) -> Result<()> {
+        // Check if the final destination is not yet present.
+        let dest_file_path = append_file_extension_to_path(self.src_file.path_or_empty(), "ssef");
+        if dest_file_path.exists() {
+            return Err(Error::FileExists(dest_file_path.clone()));
+        }
+
         // We'll write to a temporary file first. This helps us prevent incomplete files as much as
         // possible. We'll copy the temporary file to the actual destination after the encryption
         // is complete.
@@ -194,14 +200,9 @@ impl Task for EncryptionTask {
         temp_dest_file.rewind()?; // We need to rewind this file since we moved the
                                   // file's cursor earlier.
 
-        let dest_file_path = append_file_extension_to_path(self.src_file.path_or_empty(), "ssef");
-        if dest_file_path.exists() {
-            return Err(Error::FileExists(dest_file_path.clone()));
-        }
-
         let mut dest_file = File::open(
             dest_file_path.clone(),
-            FileAccessOptions::WriteCreateOrTruncate,
+            FileAccessOptions::WriteCreate,
         )?;
 
         tracing::info!(
