@@ -56,24 +56,30 @@ impl Worker {
         let thread = thread::spawn(move || {
             tracing::span!(Level::INFO, "worker_thread", worker_id = id);
             loop {
+                tracing::info!("Worker {} is waiting for a new task.", id);
                 let mut task = TASK_MANAGER.pop_task();
+                tracing::info!("Worker {} is assigned task {}.", id, task.get_id());
                 let task_status_ptr = TASK_MANAGER.get_task_status(&task.get_id()).unwrap();
                 let mut task_status = task_status_ptr.lock().unwrap();
 
                 let num_read_bytes = task_status.get_num_read_bytes_ref();
                 let num_written_bytes = task_status.get_num_written_bytes_ref();
+                let num_processed_bytes = task_status.get_num_processed_bytes_ref();
                 let should_stop = task_status.get_should_stop_ref();
 
                 task_status.set_progress(TaskProgress::Processing);
 
                 drop(task_status);
 
-                tracing::info!("Thread {} running task {}", id, task.get_id());
+                tracing::info!("Worker {} running task {}", id, task.get_id());
                 let res = task.run(
                     Some(num_read_bytes.clone()),
                     Some(num_written_bytes.clone()),
+                    Some(num_processed_bytes.clone()),
                     Some(should_stop.clone()),
                 );
+
+                tracing::info!("Worker {} is finished with task {}.", id, task.get_id());
 
                 let mut task_status = task_status_ptr.lock().unwrap();
                 match res {

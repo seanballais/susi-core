@@ -35,6 +35,7 @@ pub enum TaskProgress {
 pub struct TaskStatus {
     pub num_read_bytes: usize,
     pub num_written_bytes: usize,
+    pub num_processed_bytes: usize,
     pub should_stop: bool,
     pub last_error: *const c_char,
     pub progress: TaskProgress,
@@ -118,6 +119,7 @@ pub extern "C" fn get_task_status(ptr: *const TaskID) -> *mut TaskStatus {
         let status = guard.lock().unwrap();
         let num_read_bytes = status.get_num_read_bytes_ref().load(Ordering::Relaxed);
         let num_written_bytes = status.get_num_written_bytes_ref().load(Ordering::Relaxed);
+        let num_processed_bytes = status.get_num_processed_bytes_ref().load(Ordering::Relaxed);
         let should_stop = status.get_should_stop_ref().load(Ordering::Relaxed);
 
         let last_error_message = status.get_last_error().to_string();
@@ -138,6 +140,7 @@ pub extern "C" fn get_task_status(ptr: *const TaskID) -> *mut TaskStatus {
         let ffi_status = TaskStatus {
             num_read_bytes,
             num_written_bytes,
+            num_processed_bytes,
             should_stop,
             last_error,
             progress,

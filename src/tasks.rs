@@ -33,6 +33,7 @@ pub trait Task {
         &mut self,
         num_read_bytes: Option<Arc<AtomicUsize>>,
         num_written_bytes: Option<Arc<AtomicUsize>>,
+        num_processed_bytes: Option<Arc<AtomicUsize>>,
         should_stop: Option<Arc<AtomicBool>>,
     ) -> Result<()>;
 
@@ -79,14 +80,25 @@ impl TaskManager {
         match task_statuses.get(id) {
             Some(status) => {
                 let cloned_status = status.clone();
-                let progress = status.lock().unwrap().get_progress();
+
+                let status_lock = status.lock().unwrap();
+                let progress = status_lock.get_progress();
+                let mut should_clean = false;
 
                 if progress == TaskProgress::Done
                     || progress == TaskProgress::Failed
                     || progress == TaskProgress::Interrupted
                 {
                     // If the task is done, we should delete the task status from our storage.
-                    task_statuses.remove(id);
+                    should_clean = true;
+                }
+
+                drop(status_lock);
+
+                // We're separating the deletion of the task status section since we want to make
+                // sure that the status mutex is not locked anymore once we start deleting.
+                if should_clean {
+                    let x = task_statuses.remove(id);
                 }
 
                 Some(cloned_status)
@@ -150,6 +162,7 @@ impl Task for EncryptionTask {
         &mut self,
         num_read_bytes: Option<Arc<AtomicUsize>>,
         num_written_bytes: Option<Arc<AtomicUsize>>,
+        num_processed_bytes: Option<Arc<AtomicUsize>>,
         should_stop: Option<Arc<AtomicBool>>,
     ) -> Result<()> {
         // We'll write to a temporary file first. This helps us prevent incomplete files as much as
@@ -167,6 +180,7 @@ impl Task for EncryptionTask {
             &self.buffer_len,
             num_read_bytes,
             num_written_bytes,
+            num_processed_bytes,
             should_stop,
         )?;
 
@@ -251,6 +265,7 @@ impl Task for DecryptionTask {
         &mut self,
         num_read_bytes: Option<Arc<AtomicUsize>>,
         num_written_bytes: Option<Arc<AtomicUsize>>,
+        num_processed_bytes: Option<Arc<AtomicUsize>>,
         should_stop: Option<Arc<AtomicBool>>,
     ) -> Result<()> {
         decrypt_from_ssef_file(
@@ -260,6 +275,7 @@ impl Task for DecryptionTask {
             &self.buffer_len,
             num_read_bytes,
             num_written_bytes,
+            num_processed_bytes,
             should_stop,
         )
     }
@@ -304,6 +320,7 @@ impl PartialEq for TaskID {
 pub struct TaskStatus {
     num_read_bytes: Arc<AtomicUsize>,
     num_written_bytes: Arc<AtomicUsize>,
+    num_processed_bytes: Arc<AtomicUsize>,
     should_stop: Arc<AtomicBool>,
     last_error: Mutex<Error>,
     progress: Mutex<TaskProgress>,
@@ -314,6 +331,7 @@ impl TaskStatus {
         Self {
             num_read_bytes: Arc::new(AtomicUsize::new(0)),
             num_written_bytes: Arc::new(AtomicUsize::new(0)),
+            num_processed_bytes: Arc::new(AtomicUsize::new(0)),
             should_stop: Arc::new(AtomicBool::new(false)),
             last_error: Mutex::new(Error::None),
             progress: Mutex::new(TaskProgress::Queued),
@@ -326,6 +344,10 @@ impl TaskStatus {
 
     pub fn get_num_written_bytes_ref(&self) -> Arc<AtomicUsize> {
         self.num_written_bytes.clone()
+    }
+
+    pub fn get_num_processed_bytes_ref(&self) -> Arc<AtomicUsize> {
+        self.num_processed_bytes.clone()
     }
 
     pub fn get_should_stop_ref(&self) -> Arc<AtomicBool> {
@@ -353,6 +375,7 @@ impl TaskStatus {
     pub fn clear(&mut self) {
         self.num_read_bytes.store(0, Ordering::Relaxed);
         self.num_written_bytes.store(0, Ordering::Relaxed);
+        self.num_processed_bytes.store(0, Ordering::Relaxed);
         self.should_stop.store(false, Ordering::Relaxed);
         self.last_error = Mutex::new(Error::None);
     }

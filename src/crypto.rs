@@ -2,6 +2,7 @@ use std::ffi::OsStr;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::Instant;
 
 use aead;
 use aead::stream::{DecryptorBE32, EncryptorBE32};
@@ -48,6 +49,7 @@ pub fn encrypt_to_ssef_file(
     buffer_len: &usize,
     num_read_bytes: Option<Arc<AtomicUsize>>,
     num_written_bytes: Option<Arc<AtomicUsize>>,
+    num_processed_bytes: Option<Arc<AtomicUsize>>,
     should_stop: Option<Arc<AtomicBool>>,
 ) -> Result<()> {
     tracing::info!(
@@ -79,6 +81,7 @@ pub fn encrypt_to_ssef_file(
         &buffer_len,
         num_read_bytes,
         num_written_bytes,
+        num_processed_bytes,
         should_stop,
     )?;
 
@@ -92,6 +95,7 @@ pub fn decrypt_from_ssef_file(
     buffer_len: &usize,
     num_read_bytes: Option<Arc<AtomicUsize>>,
     num_written_bytes: Option<Arc<AtomicUsize>>,
+    num_processed_bytes: Option<Arc<AtomicUsize>>,
     should_stop: Option<Arc<AtomicBool>>,
 ) -> Result<()> {
     tracing::info!(
@@ -124,6 +128,7 @@ pub fn decrypt_from_ssef_file(
         buffer_len,
         num_read_bytes,
         num_written_bytes,
+        num_processed_bytes,
         should_stop,
     )?;
 
@@ -153,6 +158,7 @@ fn encrypt_file(
     buffer_len: &usize,
     num_read_bytes: Option<Arc<AtomicUsize>>,
     num_written_bytes: Option<Arc<AtomicUsize>>,
+    num_processed_bytes: Option<Arc<AtomicUsize>>,
     should_stop: Option<Arc<AtomicBool>>,
 ) -> Result<()> {
     let aead = Aes256Gcm::new(key.as_ref().into());
@@ -189,9 +195,11 @@ fn encrypt_file(
             let write_count = dest_file
                 .write(&encrypted)
                 .map_err(|e| errors::IO::new(dest_file.path().clone(), Arc::from(e)))?;
-
             if let Some(ref num_bytes) = num_written_bytes {
                 num_bytes.fetch_add(write_count, Ordering::Relaxed);
+            }
+            if let Some(ref num_bytes) = num_processed_bytes {
+                num_bytes.fetch_add(read_count, Ordering::Relaxed);
             }
         } else {
             let encrypted = stream_encryptor.encrypt_last(&buffer[..read_count])?;
@@ -201,6 +209,9 @@ fn encrypt_file(
 
             if let Some(ref num_bytes) = num_written_bytes {
                 num_bytes.fetch_add(write_count, Ordering::Relaxed);
+            }
+            if let Some(ref num_bytes) = num_processed_bytes {
+                num_bytes.fetch_add(read_count, Ordering::Relaxed);
             }
 
             break;
@@ -218,6 +229,7 @@ fn decrypt_file(
     buffer_len: &usize,
     num_read_bytes: Option<Arc<AtomicUsize>>,
     num_written_bytes: Option<Arc<AtomicUsize>>,
+    num_processed_bytes: Option<Arc<AtomicUsize>>,
     should_stop: Option<Arc<AtomicBool>>,
 ) -> Result<()> {
     let aead = Aes256Gcm::new(key.as_ref().into());
@@ -257,6 +269,9 @@ fn decrypt_file(
             if let Some(ref num_bytes) = num_written_bytes {
                 num_bytes.fetch_add(write_count, Ordering::Relaxed);
             }
+            if let Some(ref num_bytes) = num_processed_bytes {
+                num_bytes.fetch_add(read_count, Ordering::Relaxed);
+            }
         } else {
             let decrypted = stream_decryptor.decrypt_last(&buffer[..read_count])?;
             let write_count = dest_file
@@ -265,6 +280,9 @@ fn decrypt_file(
 
             if let Some(num_bytes) = num_written_bytes {
                 num_bytes.fetch_add(write_count, Ordering::Relaxed);
+            }
+            if let Some(ref num_bytes) = num_processed_bytes {
+                num_bytes.fetch_add(read_count, Ordering::Relaxed);
             }
 
             break;
@@ -480,6 +498,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         );
         assert!(encryption_result.is_ok());
 
@@ -491,6 +510,7 @@ mod tests {
             &mut decrypted_file,
             password,
             &BUFFER_LEN,
+            None,
             None,
             None,
             None,
@@ -567,6 +587,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         );
         assert!(encryption_result.is_ok());
 
@@ -579,6 +600,7 @@ mod tests {
             &key,
             &aes_nonce,
             &BUFFER_LEN,
+            None,
             None,
             None,
             None,
@@ -618,6 +640,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         );
         assert!(result.is_ok());
     }
@@ -639,6 +662,7 @@ mod tests {
             &key,
             &aes_nonce,
             &BUFFER_LEN,
+            None,
             None,
             None,
             None,
@@ -855,6 +879,7 @@ mod tests {
             salt,
             &aes_nonce,
             &BUFFER_LEN,
+            None,
             None,
             None,
             None,
