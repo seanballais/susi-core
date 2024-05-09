@@ -59,19 +59,31 @@ pub fn encrypt_to_ssef_file(
     );
 
     // Let's just rewind the files back to make sure.
-    src_file
-        .rewind()
-        .map_err(|e| errors::IO::new(src_file.path().clone(), Arc::from(e)))?;
-    dest_file
-        .rewind()
-        .map_err(|e| errors::IO::new(dest_file.path().clone(), Arc::new(e)))?;
+    src_file.rewind().map_err(|e| {
+        errors::IO::new(
+            "Unable to rewind original file",
+            src_file.path().clone(),
+            Arc::from(e),
+        )
+    })?;
+    dest_file.rewind().map_err(|e| {
+        errors::IO::new(
+            "Unable to rewind file",
+            dest_file.path().clone(),
+            Arc::new(e),
+        )
+    })?;
 
     let key = create_key_from_password(password, salt)?;
     let header = create_metadata_section_for_encrypted_file(src_file, salt, nonce)?;
 
-    dest_file
-        .write_all(header.as_slice())
-        .map_err(|e| errors::IO::new(dest_file.path().clone(), Arc::from(e)))?;
+    dest_file.write_all(header.as_slice()).map_err(|e| {
+        errors::IO::new(
+            "Unable to write the header",
+            dest_file.path().clone(),
+            Arc::from(e),
+        )
+    })?;
 
     encrypt_file(
         src_file,
@@ -105,12 +117,20 @@ pub fn decrypt_from_ssef_file(
     );
 
     // Let's just rewind the files back to make sure.
-    src_file
-        .rewind()
-        .map_err(|e| errors::IO::new(src_file.path().clone(), Arc::from(e)))?;
-    dest_file
-        .rewind()
-        .map_err(|e| errors::IO::new(dest_file.path().clone(), Arc::new(e)))?;
+    src_file.rewind().map_err(|e| {
+        errors::IO::new(
+            "Unable to rewind original file",
+            src_file.path().clone(),
+            Arc::from(e),
+        )
+    })?;
+    dest_file.rewind().map_err(|e| {
+        errors::IO::new(
+            "Unable to rewind original file",
+            dest_file.path().clone(),
+            Arc::new(e),
+        )
+    })?;
 
     validate_ssef_file_identifier(src_file)?;
     validate_ssef_file_format_version(src_file)?;
@@ -179,9 +199,13 @@ fn encrypt_file(
             }
         }
 
-        let read_count = src_file
-            .read(&mut buffer)
-            .map_err(|e| errors::IO::new(src_file.path().clone(), Arc::from(e)))?;
+        let read_count = src_file.read(&mut buffer).map_err(|e| {
+            errors::IO::new(
+                "Unable to read original file",
+                src_file.path().clone(),
+                Arc::from(e),
+            )
+        })?;
 
         if let Some(ref num_bytes) = num_read_bytes {
             num_bytes.fetch_add(read_count, Ordering::Relaxed);
@@ -192,9 +216,13 @@ fn encrypt_file(
             break;
         } else if read_count == *buffer_len {
             let encrypted = stream_encryptor.encrypt_next(buffer.as_slice())?;
-            let write_count = dest_file
-                .write(&encrypted)
-                .map_err(|e| errors::IO::new(dest_file.path().clone(), Arc::from(e)))?;
+            let write_count = dest_file.write(&encrypted).map_err(|e| {
+                errors::IO::new(
+                    "Unable to write to file",
+                    dest_file.path().clone(),
+                    Arc::from(e),
+                )
+            })?;
             if let Some(ref num_bytes) = num_written_bytes {
                 num_bytes.fetch_add(write_count, Ordering::Relaxed);
             }
@@ -203,9 +231,13 @@ fn encrypt_file(
             }
         } else {
             let encrypted = stream_encryptor.encrypt_last(&buffer[..read_count])?;
-            let write_count = dest_file
-                .write(&encrypted)
-                .map_err(|e| errors::IO::new(dest_file.path().clone(), Arc::from(e)))?;
+            let write_count = dest_file.write(&encrypted).map_err(|e| {
+                errors::IO::new(
+                    "Unable to write to file",
+                    dest_file.path().clone(),
+                    Arc::from(e),
+                )
+            })?;
 
             if let Some(ref num_bytes) = num_written_bytes {
                 num_bytes.fetch_add(write_count, Ordering::Relaxed);
@@ -250,9 +282,13 @@ fn decrypt_file(
             }
         }
 
-        let read_count = src_file
-            .read(&mut buffer)
-            .map_err(|e| errors::IO::new(src_file.path().clone(), Arc::from(e)))?;
+        let read_count = src_file.read(&mut buffer).map_err(|e| {
+            errors::IO::new(
+                "Unable to read original file",
+                src_file.path().clone(),
+                Arc::from(e),
+            )
+        })?;
 
         if let Some(ref num_bytes) = num_read_bytes {
             num_bytes.fetch_add(read_count, Ordering::Relaxed);
@@ -262,9 +298,13 @@ fn decrypt_file(
             return Err(Error::InvalidSSEFFile);
         } else if read_count == *buffer_len {
             let decrypted = stream_decryptor.decrypt_next(buffer.as_slice())?;
-            let write_count = dest_file
-                .write(&decrypted)
-                .map_err(|e| errors::IO::new(dest_file.path().clone(), Arc::from(e)))?;
+            let write_count = dest_file.write(&decrypted).map_err(|e| {
+                errors::IO::new(
+                    "Unable to write to file",
+                    dest_file.path().clone(),
+                    Arc::from(e),
+                )
+            })?;
 
             if let Some(ref num_bytes) = num_written_bytes {
                 num_bytes.fetch_add(write_count, Ordering::Relaxed);
@@ -274,9 +314,13 @@ fn decrypt_file(
             }
         } else {
             let decrypted = stream_decryptor.decrypt_last(&buffer[..read_count])?;
-            let write_count = dest_file
-                .write(&decrypted)
-                .map_err(|e| errors::IO::new(dest_file.path().clone(), Arc::from(e)))?;
+            let write_count = dest_file.write(&decrypted).map_err(|e| {
+                errors::IO::new(
+                    "Unable to write to file",
+                    dest_file.path().clone(),
+                    Arc::from(e),
+                )
+            })?;
 
             if let Some(num_bytes) = num_written_bytes {
                 num_bytes.fetch_add(write_count, Ordering::Relaxed);

@@ -36,14 +36,24 @@ impl Copy {
 
 #[derive(Debug, Clone)]
 pub struct IO {
+    message: String,
     path: Option<PathBuf>,
     error: Arc<io::Error>,
 }
 
 impl IO {
-    pub fn new<P: AsRef<Path>>(path: Option<P>, error: Arc<io::Error>) -> Self {
+    pub fn new<S: AsRef<str>, P: AsRef<Path>>(
+        message: S,
+        path: Option<P>,
+        error: Arc<io::Error>,
+    ) -> Self {
         let path = path.map(|path| PathBuf::from(path.as_ref()));
-        Self { path, error }
+        let message = String::from(message.as_ref());
+        Self {
+            message,
+            path,
+            error,
+        }
     }
 }
 
@@ -113,7 +123,8 @@ impl Display for Error {
             Self::FromUTF8(e) => write!(f, "Error while create string from bytes: {}", e),
             Self::IO(e) => write!(
                 f,
-                "Error performing I/O operations on {}: {}",
+                "{} ({}): {}",
+                e.message,
                 e.path.to_string_lossy(),
                 e.error.to_string()
             ),
@@ -153,6 +164,10 @@ impl From<string::FromUtf8Error> for Error {
 
 impl From<io::Error> for Error {
     fn from(e: io::Error) -> Self {
-        Self::IO(IO::new(None::<&str>, Arc::new(e)))
+        Self::IO(IO::new(
+            String::from("Unable to perform I/O operations on file"),
+            None::<&str>,
+            Arc::new(e),
+        ))
     }
 }

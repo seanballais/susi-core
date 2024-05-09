@@ -84,7 +84,11 @@ impl File {
                 is_readable: readable,
                 is_writable: writable,
             }),
-            Err(e) => Err(Error::from(IO::new(file_path, Arc::new(e)))),
+            Err(e) => Err(Error::from(IO::new(
+                "Unable to open file",
+                file_path,
+                Arc::new(e),
+            ))),
         }
     }
 
@@ -92,7 +96,11 @@ impl File {
         let file_path = path.as_ref().to_pathbuf_option();
         match fs::File::create(path.as_ref()) {
             Ok(_) => Ok(()),
-            Err(e) => Err(Error::from(IO::new(file_path, Arc::new(e)))),
+            Err(e) => Err(Error::from(IO::new(
+                "Unable to create file",
+                file_path,
+                Arc::new(e),
+            ))),
         }
     }
 
@@ -244,14 +252,20 @@ pub fn copy_file_contents(src_file: &mut File, dest_file: &mut File) -> Result<(
         let read_count = src_file
             .get_file_mut()
             .read(&mut buffer)
-            .map_err(|e| IO::new(src_file.path.clone(), Arc::from(e)))?;
+            .map_err(|e| IO::new("Unable to read file", src_file.path.clone(), Arc::from(e)))?;
         if read_count == 0 {
             break;
         } else {
             dest_file
                 .get_file_mut()
                 .write(&buffer[0..read_count])
-                .map_err(|e| IO::new(dest_file.path.clone(), Arc::from(e)))?;
+                .map_err(|e| {
+                    IO::new(
+                        "Unable to write to file",
+                        dest_file.path.clone(),
+                        Arc::from(e),
+                    )
+                })?;
         }
     }
 

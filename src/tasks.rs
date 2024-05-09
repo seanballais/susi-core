@@ -1,10 +1,12 @@
-use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
+use std::fs;
 use std::io::{Read, Seek, Write};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+use once_cell::sync::Lazy;
 use rand::distributions::{Alphanumeric, DistString};
 use rand::{rngs::OsRng, RngCore};
 use tempfile::tempfile;
@@ -16,7 +18,7 @@ use crate::crypto::{
 };
 use crate::ds::{FIFOQueue, Queue};
 use crate::errors;
-use crate::errors::{Error, Result};
+use crate::errors::{Error, Result, IO};
 use crate::fs::{append_file_extension_to_path, File, FileAccessOptions};
 
 pub type TaskObject = Box<dyn Task + Send>;
@@ -200,10 +202,7 @@ impl Task for EncryptionTask {
         temp_dest_file.rewind()?; // We need to rewind this file since we moved the
                                   // file's cursor earlier.
 
-        let mut dest_file = File::open(
-            dest_file_path.clone(),
-            FileAccessOptions::WriteCreate,
-        )?;
+        let mut dest_file = File::open(dest_file_path.clone(), FileAccessOptions::WriteCreate)?;
 
         tracing::info!(
             "Saving encrypted file in {} to the destination, {}",
@@ -216,15 +215,41 @@ impl Task for EncryptionTask {
         loop {
             let read_count = temp_dest_file
                 .read(&mut buffer)
-                .map_err(|e| errors::IO::new(None::<&str>, Arc::from(e)))?;
+                .map_err(|e| IO::new("Unable to read file", temp_dest_file.path(), Arc::from(e)))?;
             if read_count == 0 {
                 break;
             } else {
                 dest_file
                     .get_file_mut()
                     .write(&buffer[0..read_count])
-                    .map_err(|e| errors::IO::new(Some(dest_file_path.clone()), Arc::from(e)))?;
+                    .map_err(|e| {
+                        IO::new(
+                            "Unable to write to file",
+                            Some(dest_file_path.clone()),
+                            Arc::from(e),
+                        )
+                    })?;
             }
+        }
+
+        // Time to delete the source file.
+        let result = fs::remove_file(self.src_file.path_or_empty());
+        if result.is_err() {
+            // We should remove the copied encrypted file then.
+            let result = fs::remove_file(dest_file.path_or_empty());
+            if result.is_err() {
+                return Err(Error::IO(IO::new(
+                    String::from("Unable to remove the encrypted file"),
+                    dest_file.path(),
+                    Arc::from(result.unwrap_err()),
+                )));
+            }
+
+            return Err(Error::IO(IO::new(
+                String::from("Unable to remove the original file"),
+                self.src_file.path(),
+                Arc::from(result.unwrap_err()),
+            )));
         }
 
         Ok(())
