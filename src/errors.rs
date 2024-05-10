@@ -68,12 +68,13 @@ pub enum Error {
     InvalidSSEFFileIdentifier,
     InvalidDirectory(String),
     Logging(String),
+    PasswordKeyGeneration(Arc<dyn error::Error + Send + Sync>),
     TaskTerminated,
     UnsupportedSSEFFormatVersion,
     AEAD(aead::Error),
     Argon2(argon2::Error),
     FromUTF8(string::FromUtf8Error),
-    IO(IO),
+    IO(IO)
 }
 
 pub type Result<T> = core::result::Result<T, Error>;
@@ -117,6 +118,9 @@ impl Display for Error {
             Self::TaskTerminated => write!(f, "Task was stopped midway"),
             Self::InvalidDirectory(s) => write!(f, "{}", s),
             Self::Logging(s) => write!(f, "{}", s),
+            Self::PasswordKeyGeneration(e) => write!(
+                f, "Password key generation failed: {}", e.to_string()
+            ),
             Self::UnsupportedSSEFFormatVersion => write!(f, "Format version is not supported"),
             Self::AEAD(e) => write!(f, "Error while using AEAD functions: {}", e),
             Self::Argon2(e) => write!(f, "Error while using Argon2 functions: {}", e),
@@ -127,7 +131,7 @@ impl Display for Error {
                 e.message,
                 e.path.to_string_lossy(),
                 e.error.to_string()
-            ),
+            )
         }
     }
 }

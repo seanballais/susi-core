@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::fs;
-use std::io::{Read, Seek, Write};
-use std::path::PathBuf;
+use std::io::Seek;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -11,15 +10,14 @@ use rand::distributions::{Alphanumeric, DistString};
 use rand::{rngs::OsRng, RngCore};
 use tempfile::tempfile;
 use uuid::Uuid;
+use crate::constants::IO_BUFFER_LEN;
+use crate::crypto::common::{AES256GCMNonce, MINIMUM_PASSWORD_LENGTH, SALT_LENGTH};
+use crate::crypto::decryption::decrypt_from_ssef_file;
+use crate::crypto::encryption::encrypt_to_ssef_file;
 
-use crate::crypto::{
-    decrypt_from_ssef_file, encrypt_to_ssef_file, AES256GCMNonce, IO_BUFFER_LEN,
-    MINIMUM_PASSWORD_LENGTH, SALT_LENGTH,
-};
 use crate::ds::{FIFOQueue, Queue};
-use crate::errors;
 use crate::errors::{Error, Result, IO};
-use crate::fs::{append_file_extension_to_path, File, FileAccessOptions};
+use crate::fs::{append_file_extension_to_path, copy_file_contents, File, FileAccessOptions};
 
 pub type TaskObject = Box<dyn Task + Send>;
 pub type TaskFIFOQueue = FIFOQueue<TaskObject>;
@@ -73,6 +71,10 @@ impl TaskManager {
         Ok(task_id.clone())
     }
 
+    /*pub fn queue_decryption_task(&self, src_file: File, password: Vec<u8>) -> Result<TaskID> {
+        let task = DecryptionTask::new()
+    }*/
+
     pub fn pop_task(&self) -> TaskObject {
         self.task_queue.pop()
     }
@@ -100,7 +102,7 @@ impl TaskManager {
                 // We're separating the deletion of the task status section since we want to make
                 // sure that the status mutex is not locked anymore once we start deleting.
                 if should_clean {
-                    let x = task_statuses.remove(id);
+                    task_statuses.remove(id);
                 }
 
                 Some(cloned_status)
@@ -210,27 +212,7 @@ impl Task for EncryptionTask {
             dest_file.path_or_empty().display()
         );
 
-        // No progress notification here yet, but this should provide the foundation.
-        let mut buffer = [0u8; IO_BUFFER_LEN];
-        loop {
-            let read_count = temp_dest_file
-                .read(&mut buffer)
-                .map_err(|e| IO::new("Unable to read file", temp_dest_file.path(), Arc::from(e)))?;
-            if read_count == 0 {
-                break;
-            } else {
-                dest_file
-                    .get_file_mut()
-                    .write(&buffer[0..read_count])
-                    .map_err(|e| {
-                        IO::new(
-                            "Unable to write to file",
-                            Some(dest_file_path.clone()),
-                            Arc::from(e),
-                        )
-                    })?;
-            }
-        }
+        copy_file_contents(&mut temp_dest_file, &mut dest_file)?;
 
         // Time to delete the source file.
         let result = fs::remove_file(self.src_file.path_or_empty());
@@ -269,17 +251,17 @@ impl Task for EncryptionTask {
 pub struct DecryptionTask {
     id: TaskID,
     src_file: File,
-    dest_file: File,
     password: Vec<u8>,
     buffer_len: usize,
 }
 
 impl DecryptionTask {
-    pub fn new(id: TaskID, src_file: File, dest_file: File, password: Vec<u8>) -> Self {
+    pub fn new(src_file: File, password: Vec<u8>) -> Self {
+        let id = TaskID::new();
+
         Self {
             id,
             src_file,
-            dest_file,
             password,
             buffer_len: IO_BUFFER_LEN,
         }
@@ -294,16 +276,51 @@ impl Task for DecryptionTask {
         num_processed_bytes: Option<Arc<AtomicUsize>>,
         should_stop: Option<Arc<AtomicBool>>,
     ) -> Result<()> {
+        // Check if the final destination is not yet present.
+        let dest_file_path = append_file_extension_to_path(self.src_file.path_or_empty(), "ssef");
+        if dest_file_path.exists() {
+            return Err(Error::FileExists(dest_file_path.clone()));
+        }
+
+        // We'll write to a temporary file first. This helps us prevent incomplete files as much as
+        // possible. We'll copy the temporary file to the actual destination after the encryption
+        // is complete.
+        let mut temp_dest_file = File::from(tempfile()?);
+        let should_stop_copy = should_stop.clone();
+
         decrypt_from_ssef_file(
             &mut self.src_file,
-            &mut self.dest_file,
+            &mut temp_dest_file,
             self.password.as_slice(),
             &self.buffer_len,
             num_read_bytes,
             num_written_bytes,
             num_processed_bytes,
             should_stop,
-        )
+        )?;
+
+        if let Some(stop) = should_stop_copy {
+            if stop.fetch_and(true, Ordering::Relaxed) {
+                return Ok(());
+            }
+        }
+
+        // Then we copy to the actual destination.
+        // We need to rewind this file since we moved the
+        // file's cursor earlier.
+        temp_dest_file.rewind()?;
+
+        let mut dest_file = File::open(dest_file_path.clone(), FileAccessOptions::WriteCreate)?;
+
+        tracing::info!(
+            "Saving decrypted file in {} to the destination, {}",
+            temp_dest_file.path_or_empty().display(),
+            dest_file.path_or_empty().display()
+        );
+
+        copy_file_contents(&mut temp_dest_file, &mut dest_file)?;
+
+        Ok(())
     }
 
     fn get_id(&self) -> &TaskID {
@@ -426,11 +443,12 @@ pub enum TestTaskType {
 
 #[cfg(test)]
 mod tests {
-    use crate::crypto::IO_BUFFER_LEN;
-    use crate::fs::{File, FileAccessOptions};
-    use crate::tasks::EncryptionTask;
     use std::io::{Read, Seek, Write};
     use tempfile::tempfile;
+    use crate::constants::IO_BUFFER_LEN;
+
+    use crate::fs::{File, FileAccessOptions};
+    use crate::tasks::EncryptionTask;
 
     #[test]
     fn test_creating_new_encryption_task_properly_works_successfully() {
@@ -442,10 +460,10 @@ mod tests {
             File::open(src_file_path.clone(), FileAccessOptions::ReadWriteCreate).unwrap();
 
         const SRC_CONTENTS: &str = "I'm a Barbie girl in a Barbie world.";
-        let res = src_file.get_file_mut().write_all(SRC_CONTENTS.as_bytes());
+        let res = src_file.write_all(SRC_CONTENTS.as_bytes());
         assert!(res.is_ok());
 
-        let rewind_res = src_file.get_file_mut().rewind();
+        let rewind_res = src_file.rewind();
         assert!(rewind_res.is_ok());
 
         let password = String::from("Shake shake shake, Signora! Shake your body line.");

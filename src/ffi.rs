@@ -1,5 +1,6 @@
 use crate::init_core_systems;
 
+// We need to set `errors` to public visibility since it's used in `src/logging.rs`.
 pub mod errors;
 mod logging;
 mod tasks;

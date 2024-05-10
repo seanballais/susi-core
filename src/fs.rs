@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use filepath::FilePath;
 
-use crate::crypto::IO_BUFFER_LEN;
+use crate::constants::IO_BUFFER_LEN;
 use crate::errors::{Copy, Error, Result, IO};
 use crate::path::PathExt;
 
@@ -101,6 +101,36 @@ impl File {
                 file_path,
                 Arc::new(e),
             ))),
+        }
+    }
+
+    /// A wrapper for the `read()` function that returns
+    /// a `crate::errors::Error(IO)` error on failure. The built-in
+    /// file `read()` function returns an `std::io::Result<usize>`.
+    pub fn read_data(&mut self, buffer: &mut [u8]) -> Result<usize> {
+        match self.read(buffer) {
+            Ok(count) => Ok(count),
+            Err(err) => Err(Error::from(IO::new(
+                "Unable to read original file",
+                self.path().clone(),
+                Arc::from(err),
+            )))
+        }
+    }
+
+    /// A wrapper for the `write()` function that returns
+    /// a `crate::errors::Error(IO)` error on failure. The built-in
+    /// file `write()` function returns an `std::io::Result<usize>`.
+    pub fn write_data(&mut self, buffer: &[u8]) -> Result<usize> {
+        match self.write(buffer) {
+            Ok(count) => {
+                Ok(count)
+            },
+            Err(err) => Err(Error::from(IO::new(
+                "Unable to write to file",
+                self.path().clone(),
+                Arc::from(err)
+            )))
         }
     }
 
@@ -249,23 +279,11 @@ pub fn copy_file_contents(src_file: &mut File, dest_file: &mut File) -> Result<(
     // No progress notification here yet, but this should provide the foundation.
     let mut buffer = [0u8; IO_BUFFER_LEN];
     loop {
-        let read_count = src_file
-            .get_file_mut()
-            .read(&mut buffer)
-            .map_err(|e| IO::new("Unable to read file", src_file.path.clone(), Arc::from(e)))?;
+        let read_count = src_file.read_data(&mut buffer)?;
         if read_count == 0 {
             break;
         } else {
-            dest_file
-                .get_file_mut()
-                .write(&buffer[0..read_count])
-                .map_err(|e| {
-                    IO::new(
-                        "Unable to write to file",
-                        dest_file.path.clone(),
-                        Arc::from(e),
-                    )
-                })?;
+            dest_file.write_data(&buffer[0..read_count])?;
         }
     }
 
@@ -736,6 +754,36 @@ mod tests {
         assert!(file.is_readable());
         assert!(file.is_writable());
         assert_eq!(file.path_or_empty(), path.clone());
+    }
+
+    #[test]
+    fn test_read_and_write_data_from_and_to_file() {
+        let path = create_test_file_path("read-write-data-test-file.txt");
+        let file_open_result = File::open(path, FileAccessOptions::ReadWriteCreate);
+        assert!(file_open_result.is_ok());
+
+        let mut file = file_open_result.unwrap();
+
+        let content = b"testing";
+        let write_result = file.write_data(content);
+        assert!(write_result.is_ok());
+
+        let write_count = write_result.unwrap();
+        assert_eq!(write_count, content.len());
+
+        // We always need to rewind the the file's pointer if we want to
+        // read its contents properly.
+        let rewind_result = file.rewind();
+        assert!(rewind_result.is_ok());
+
+        let mut buffer = [0u8; 7];
+        let read_result = file.read_data(&mut buffer);
+        assert!(read_result.is_ok());
+
+        let read_count = read_result.unwrap();
+        assert_eq!(read_count, content.len());
+
+        assert_eq!(&buffer, content);
     }
 
     #[test]
