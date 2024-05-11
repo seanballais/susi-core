@@ -1,4 +1,4 @@
-pub const SALT_LENGTH: usize = 32;
+pub const MINIMUM_SALT_LENGTH: usize = 32;
 pub const MINIMUM_PASSWORD_LENGTH: usize = 12;
 
 // Remember that each metadata value only has a max length of 65,535 bytes, since we assign
@@ -48,8 +48,8 @@ mod tests {
         // We need to wind back the file pointer in src_file since we wrote contents to it.
         src_file.rewind().unwrap();
 
-        let password = b"tale-as-old-as-time";
-        let salt = b"song-as-old-as-rhyme";
+        let password = b"sa tuwing nakikita kong magkasama na kayooo";
+        let salt = b"naiinis ako nasisira ang araw ko, at di ko alam bakit ba nagkakaganto";
         let mut nonce = AES256GCMNonce::default();
         OsRng.fill_bytes(&mut nonce);
 
@@ -100,21 +100,30 @@ mod tests {
 
     #[test]
     fn test_creating_key_from_password_succeeds() {
-        let key = SusiKey::new(b"this-is-a-password-supposedly", b"saltsaltsaltsalt")
-            .unwrap();
-        assert_eq!(key.key.len(), 32);
+        let password = b"this-is-a-password-supposedly";
+        let salt = b"ang sakit-sakit, di nailalabas ang iyak";
+        let key = SusiKey::new(password, salt).unwrap();
+        let expected_file_key = [
+             88,  99,  55, 134,  16, 194, 208,  94,
+            204, 197, 179,  93, 109, 248, 188, 192,
+             70, 201, 190, 231, 202,  55, 175, 189,
+             94,  39, 204,  23, 174, 157,  75, 143
+        ];
+        assert_eq!(expected_file_key, key.key);
     }
 
     #[test]
     fn test_creating_key_from_password_with_too_short_password_fails() {
         let res = SusiKey::new(b"pass", b"asin");
         assert!(res.is_err());
+        assert!(matches!(res.unwrap_err(), Error::InvalidPasswordLength));
     }
 
     #[test]
     fn test_creating_key_from_password_with_too_short_salt_fails() {
         let res = SusiKey::new(b"this-is-a-password-supposedly", b"asin");
         assert!(res.is_err());
+        assert!(matches!(res.unwrap_err(), Error::InvalidSaltLength));
     }
 
     #[test]
@@ -123,22 +132,24 @@ mod tests {
         let mut encrypted_file = File::from(tempfile().unwrap());
         let mut decrypted_file = File::from(tempfile().unwrap());
         let contents = concat!(
-        "I can see what's happening\n",
-        "What?\n",
-        "Our trio's down to two!\n",
-        "(lyrics)\n",
-        "_CAN_ YOU FEEL THE LOVE TONIGHT?!\n",
-        "The world for once, in perfect harmony\n",
-        "With all its living things\n",
-        "So many things to tell youuu\n",
-        "She'd turn away from meee"
+            "I can see what's happening\n",
+            "What?\n",
+            "Our trio's down to two!\n",
+            "(lyrics)\n",
+            "_CAN_ YOU FEEL THE LOVE TONIGHT?!\n",
+            "The world for once, in perfect harmony\n",
+            "With all its living things\n",
+            "So many things to tell youuu\n",
+            "She'd turn away from meee"
         );
         writeln!(src_file.get_file_mut(), "{}", contents).unwrap();
 
         // We need to wind back the file pointer in src_file since we wrote contents to it.
         src_file.rewind().unwrap();
 
-        let key = SusiKey::new(b"tale-as-old-as-time", b"song-as-old-as-rhyme").unwrap();
+        let password = b"ayokong umasa sa paniniwalaaaaa, may pag-asa nga baaaaa";
+        let salt = b"na baka ang baka ang puso ko'y mapagbigyan, mahiwagang salamin";
+        let key = SusiKey::new(password, salt).unwrap();
         let mut aes_nonce = AES256GCMNonce::default();
         OsRng.fill_bytes(&mut aes_nonce);
 
@@ -189,7 +200,8 @@ mod tests {
 
     #[test]
     fn test_encrypting_an_empty_file_succeeds() {
-        let key = SusiKey::new(b"why-do-birds", b"suddenly-appear").unwrap();
+        let salt = b"cause they just wanna appear lad";
+        let key = SusiKey::new(b"why-do-birds", salt).unwrap();
         let mut aes_nonce = AES256GCMNonce::default();
         OsRng.fill_bytes(&mut aes_nonce);
 
@@ -213,7 +225,8 @@ mod tests {
 
     #[test]
     fn test_decrypting_an_empty_file_fails() {
-        let key = SusiKey::new(b"isn't she lovelyyyy", b"isn't-she-wonderfulll").unwrap();
+        let salt = b"she's wonderful, but she ain't looking at me the same way I looked at her.";
+        let key = SusiKey::new(b"isn't she lovelyyyy", salt).unwrap();
         let mut aes_nonce = AES256GCMNonce::default();
         OsRng.fill_bytes(&mut aes_nonce);
 

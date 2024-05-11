@@ -9,6 +9,7 @@ use std::sync::Arc;
 use crate::path::OptionPathBufExt;
 use aead;
 use argon2;
+use crate::crypto::common::{MINIMUM_PASSWORD_LENGTH, MINIMUM_SALT_LENGTH};
 
 #[derive(Debug, Clone)]
 pub struct Copy {
@@ -62,13 +63,16 @@ pub enum Error {
     None, // Only use this as a default value.
     Copy(Copy),
     FileExists(PathBuf),
-    InvalidNonceLength,
     InvalidPasswordLength,
+    InvalidSaltLength,
     InvalidSSEFFile,
     InvalidSSEFFileIdentifier,
     InvalidDirectory(String),
     Logging(String),
+    MACNotObtained(Arc<dyn error::Error + Send + Sync>),
+    NonceNotObtained(Arc<dyn error::Error + Send + Sync>),
     PasswordKeyGeneration(Arc<dyn error::Error + Send + Sync>),
+    PasswordVerification(Arc<dyn error::Error + Send + Sync>),
     TaskTerminated,
     UnsupportedSSEFFormatVersion,
     AEAD(aead::Error),
@@ -103,23 +107,32 @@ impl Display for Error {
                     e.dest_file_path.to_string_lossy(),
                     e.message
                 )
-            }
-            Self::FileExists(p) => {
-                write!(f, "{} already exists", p.display())
-            }
-            Self::InvalidNonceLength => {
-                write!(f, "Nonce length is either too short or too long")
-            }
+            },
             Self::InvalidPasswordLength => {
-                write!(f, "Password must be more than 12 characters")
-            }
+                write!(f, "Password must be more than {} bytes", MINIMUM_PASSWORD_LENGTH)
+            },
+            Self::InvalidSaltLength => {
+                write!(f, "Salt must be more than {} bytes", MINIMUM_SALT_LENGTH)
+            },
             Self::InvalidSSEFFile => write!(f, "Invalid SSEF file"),
             Self::InvalidSSEFFileIdentifier => write!(f, "Wrong file identifier"),
             Self::TaskTerminated => write!(f, "Task was stopped midway"),
             Self::InvalidDirectory(s) => write!(f, "{}", s),
             Self::Logging(s) => write!(f, "{}", s),
+            Self::FileExists(p) => {
+                write!(f, "{} already exists", p.display())
+            },
+            Self::MACNotObtained(e) => {
+                write!(f, "Unable to obtain the MAC: {}", e.to_string())
+            },
+            Self::NonceNotObtained(e) => {
+                write!(f, "Unable to obtain the nonce: {}", e.to_string())
+            }
             Self::PasswordKeyGeneration(e) => write!(
                 f, "Password key generation failed: {}", e.to_string()
+            ),
+            Self::PasswordVerification(e) => write!(
+                f, "Failed to verify provided password: {}", e.to_string()
             ),
             Self::UnsupportedSSEFFormatVersion => write!(f, "Format version is not supported"),
             Self::AEAD(e) => write!(f, "Error while using AEAD functions: {}", e),

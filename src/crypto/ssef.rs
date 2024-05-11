@@ -1,13 +1,16 @@
 use std::ffi::OsStr;
 use std::io::{Read, Seek, SeekFrom};
+use std::sync::Arc;
 
 use crate::crypto::common::AES256GCMNonce;
+use crate::crypto::keys::{MAC, MAC_SIZE};
 use crate::errors::Error;
 use crate::fs::File;
 
 pub struct SSEFMetadata {
     pub filename: String,
     pub salt: Vec<u8>,
+    pub mac: [u8; MAC_SIZE],
     pub nonce: AES256GCMNonce,
 }
 
@@ -30,6 +33,7 @@ pub fn get_metadata_section_from_ssef_file(src_file: &mut File) -> crate::errors
     let mut metadata_index = 0;
     let mut filename = String::new();
     let mut salt: Vec<u8> = vec![];
+    let mut mac = MAC::default();
     let mut nonce = AES256GCMNonce::default();
     while metadata_index < metadata.len() {
         let id = [metadata[metadata_index], metadata[metadata_index + 1]];
@@ -37,17 +41,20 @@ pub fn get_metadata_section_from_ssef_file(src_file: &mut File) -> crate::errors
         let length_bytes = [metadata[metadata_index + 2], metadata[metadata_index + 3]];
         let length = (length_bytes[0] as u16 | (length_bytes[1] as u16) << 8) as usize;
 
-        let value = metadata[(metadata_index + 4)..(metadata_index + length + 4)].to_vec();
+        let value = &metadata[(metadata_index + 4)..(metadata_index + length + 4)];
 
         match id {
             [0x00, 0x01] => {
-                filename = String::from_utf8(value)?;
-            }
+                filename = String::from_utf8(value.to_vec())?;
+            },
             [0xA5, 0x19] => {
-                salt = Vec::from(value);
+                salt = value.to_vec();
+            },
+            [0x44, 0xAC] => {
+                mac = value.try_into().map_err(|e| Error::MACNotObtained(Arc::new(e)))?;
             }
             [0x90, 0x9C] => {
-                nonce = value.try_into().map_err(|_| Error::InvalidNonceLength)?;
+                nonce = value.try_into().map_err(|e| Error::NonceNotObtained(Arc::new(e)))?;
             }
             _ => {}
         }
@@ -58,6 +65,7 @@ pub fn get_metadata_section_from_ssef_file(src_file: &mut File) -> crate::errors
     Ok(SSEFMetadata {
         filename,
         salt,
+        mac,
         nonce,
     })
 }
@@ -65,7 +73,7 @@ pub fn get_metadata_section_from_ssef_file(src_file: &mut File) -> crate::errors
 pub(super) fn create_metadata_section_for_encrypted_file(
     src_file: &File,
     salt: &[u8],
-    key_mac: &[u8],
+    key_mac: &MAC,
     nonce: &AES256GCMNonce,
 ) -> crate::errors::Result<Vec<u8>> {
     // File identifier = first two bytes (big-endian)
@@ -218,9 +226,10 @@ mod tests {
         let src_file_path = dir.path().join(SRC_FILENAME);
         let src_file = File::open(src_file_path, FileAccessOptions::ReadWriteCreate).unwrap();
 
-        let salt = b"you-cant-hurry-love";
+        let salt = b"i'm okay i'm fine gwenchana gwenchana teng teng neng neng neng";
         let res = SusiKey::new(b"aykaramba123", salt);
         assert!(res.is_ok());
+
         let key = res.unwrap();
 
         let mut nonce = AES256GCMNonce::default();
@@ -360,8 +369,8 @@ mod tests {
 
     #[test]
     fn test_creating_mac_metadata_item_succeeds() {
-        let salt = b"sige na please wag nang mainis";
-        let password = b"bumalik ka na sa'kin";
+        let password = b"sige na please wag nang mainis";
+        let salt = b"you fill up my senses, like the night in the forest";
         let res = SusiKey::new(password, salt);
         assert!(res.is_ok());
 
@@ -440,8 +449,8 @@ mod tests {
         // We need to wind back the file pointer in src_file since we wrote contents to it.
         src_file.rewind().unwrap();
 
-        let password = b"barely even friends";
-        let salt = b"then somebody bends";
+        let password = b"bakit ba siya, at bakit di nalang ako";
+        let salt = b"sanay mapansin ang aking nadarama sayo hindi lang rin ako sanay";
         let mut aes_nonce = AES256GCMNonce::default();
         OsRng.fill_bytes(&mut aes_nonce);
 

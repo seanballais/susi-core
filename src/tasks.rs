@@ -11,7 +11,7 @@ use rand::{rngs::OsRng, RngCore};
 use tempfile::tempfile;
 use uuid::Uuid;
 use crate::constants::IO_BUFFER_LEN;
-use crate::crypto::common::{AES256GCMNonce, MINIMUM_PASSWORD_LENGTH, SALT_LENGTH};
+use crate::crypto::common::{AES256GCMNonce, MINIMUM_PASSWORD_LENGTH, MINIMUM_SALT_LENGTH};
 use crate::crypto::decryption::decrypt_from_ssef_file;
 use crate::crypto::encryption::encrypt_to_ssef_file;
 
@@ -145,7 +145,7 @@ impl EncryptionTask {
         }
 
         let salt = Alphanumeric
-            .sample_string(&mut rand::thread_rng(), SALT_LENGTH)
+            .sample_string(&mut rand::thread_rng(), MINIMUM_SALT_LENGTH)
             .into_bytes();
         let mut nonce = AES256GCMNonce::default();
         OsRng.fill_bytes(&mut nonce);
