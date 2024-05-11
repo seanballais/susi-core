@@ -4,6 +4,8 @@ use crate::init_core_systems;
 pub mod errors;
 mod logging;
 mod tasks;
+mod validation;
+mod files;
 
 #[no_mangle]
 pub extern "C" fn init_susi_core() {
