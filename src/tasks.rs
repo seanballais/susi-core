@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::fs;
 use std::io::Seek;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -14,6 +15,8 @@ use crate::constants::IO_BUFFER_LEN;
 use crate::crypto::common::{AES256GCMNonce, MINIMUM_PASSWORD_LENGTH, MINIMUM_SALT_LENGTH};
 use crate::crypto::decryption::decrypt_from_ssef_file;
 use crate::crypto::encryption::encrypt_to_ssef_file;
+use crate::crypto::keys::is_password_correct;
+use crate::crypto::ssef::{get_metadata_section_from_ssef_file, validate_ssef_file_format_version, validate_ssef_file_identifier};
 
 use crate::ds::{FIFOQueue, Queue};
 use crate::errors::{Error, Result, IO};
@@ -256,15 +259,29 @@ pub struct DecryptionTask {
 }
 
 impl DecryptionTask {
-    pub fn new(src_file: File, password: Vec<u8>) -> Self {
-        let id = TaskID::new();
+    pub fn new(src_file: File, password: Vec<u8>) -> Result<Self> {
+        let password_string = String::from_utf8_lossy(password.as_slice());
+        if password_string.len() < MINIMUM_PASSWORD_LENGTH {
+            return Err(Error::InvalidPasswordLength);
+        }
 
-        Self {
+        let id = TaskID::new();
+        let mut file = src_file;
+
+        validate_ssef_file_identifier(&mut file)?;
+        validate_ssef_file_format_version(&mut file)?;
+
+        let metadata = get_metadata_section_from_ssef_file(&mut file)?;
+        if !is_password_correct(password.as_slice(), metadata.salt.as_slice(), &metadata.mac)? {
+            return Err(Error::IncorrectPassword);
+        }
+
+        Ok(Self {
             id,
-            src_file,
+            src_file: file,
             password,
             buffer_len: IO_BUFFER_LEN,
-        }
+        })
     }
 }
 
@@ -276,8 +293,15 @@ impl Task for DecryptionTask {
         num_processed_bytes: Option<Arc<AtomicUsize>>,
         should_stop: Option<Arc<AtomicBool>>,
     ) -> Result<()> {
+        let metadata = get_metadata_section_from_ssef_file(&mut self.src_file)?;
+
         // Check if the final destination is not yet present.
-        let dest_file_path = append_file_extension_to_path(self.src_file.path_or_empty(), "ssef");
+        let mut dest_file_path = self.src_file
+            .path_or_empty()
+            .parent()
+            .map_or_else(|| { PathBuf::new() }, |p| { p.to_path_buf() });
+        let original_filename = metadata.filename;
+        dest_file_path.push(original_filename);
         if dest_file_path.exists() {
             return Err(Error::FileExists(dest_file_path.clone()));
         }
@@ -445,10 +469,12 @@ pub enum TestTaskType {
 mod tests {
     use std::io::{Read, Seek, Write};
     use tempfile::tempfile;
-    use crate::constants::IO_BUFFER_LEN;
 
-    use crate::fs::{File, FileAccessOptions};
-    use crate::tasks::EncryptionTask;
+    use crate::constants::IO_BUFFER_LEN;
+    use crate::errors::Error;
+    use crate::fs::{append_file_extension_to_path, File, FileAccessOptions};
+    use crate::tasks::{DecryptionTask, EncryptionTask, Task};
+    use crate::testing::{create_test_file, create_test_file_path, create_test_file_with_content};
 
     #[test]
     fn test_creating_new_encryption_task_properly_works_successfully() {
@@ -491,5 +517,112 @@ mod tests {
 
         let res = EncryptionTask::new(src_file, password.into_bytes());
         assert!(res.is_err());
+        assert!(matches!(res.unwrap_err(), Error::InvalidPasswordLength));
+    }
+
+    #[test]
+    fn test_creating_new_encryption_task_with_preexisting_dest_file_fails() {
+        let src_file_path = create_test_file_path("encrypted-file.txt");
+        let dest_file_path = append_file_extension_to_path(src_file_path.clone(), ".ssef");
+        create_test_file_with_content(src_file_path.clone(), "Spooky scary skeletons");
+        create_test_file(dest_file_path);
+
+        let src_file = File::open(src_file_path, FileAccessOptions::ReadOnly).unwrap();
+        let password = String::from("miss ko na siya");
+        let mut task = EncryptionTask::new(src_file, password.into_bytes()).unwrap();
+        let res = task.run(None, None, None, None);
+        assert!(res.is_err());
+        assert!(matches!(res.unwrap_err(), Error::FileExists(_dest_file_path)));
+    }
+
+    #[test]
+    fn test_creating_new_decryption_task_properly_works_successfully() {
+        let content = "You're a small town girl.";
+
+        let src_file_path = create_test_file_path("encrypted-file.txt");
+        create_test_file_with_content(src_file_path.clone(), content.clone());
+
+        let src_file = File::open(src_file_path.clone(), FileAccessOptions::ReadOnly).unwrap();
+        let password = String::from("we're the king and queen of hearts");
+        let mut task = EncryptionTask::new(src_file, password.clone().into_bytes()).unwrap();
+        let res = task.run(None, None, None, None);
+        assert!(res.is_ok());
+
+        let dest_file_path = append_file_extension_to_path(src_file_path.clone(), ".ssef");
+        let dest_file = File::open(dest_file_path.clone(), FileAccessOptions::ReadOnly).unwrap();
+        let mut task = DecryptionTask::new(dest_file, password.clone().into_bytes()).unwrap();
+        let res = task.run(None, None, None, None);
+        assert!(res.is_ok());
+
+        let mut src_file = File::open(src_file_path.clone(), FileAccessOptions::ReadOnly).unwrap();
+        let mut retrieved_contents = String::from("");
+        src_file.read_to_string(&mut retrieved_contents).unwrap();
+
+        assert_eq!(retrieved_contents, content);
+    }
+
+    #[test]
+    fn test_creating_new_decryption_task_with_short_password_fails() {
+        let content = "You're a small town girl.";
+
+        let src_file_path = create_test_file_path("encrypted-file.txt");
+        create_test_file_with_content(src_file_path.clone(), content.clone());
+
+        let src_file = File::open(src_file_path.clone(), FileAccessOptions::ReadOnly).unwrap();
+        let password = String::from("we're the king and queen of hearts");
+        let mut task = EncryptionTask::new(src_file, password.into_bytes()).unwrap();
+        let res = task.run(None, None, None, None);
+        assert!(res.is_ok());
+
+        let dest_file_path = append_file_extension_to_path(src_file_path.clone(), ".ssef");
+        let dest_file = File::open(dest_file_path.clone(), FileAccessOptions::ReadOnly).unwrap();
+        let password = String::from("very short");
+        let res = DecryptionTask::new(dest_file, password.into_bytes());
+        assert!(res.is_err());
+        assert!(matches!(res.unwrap_err(), Error::InvalidPasswordLength));
+    }
+
+    #[test]
+    fn test_creating_new_decryption_task_with_wrong_password_fails() {
+        let content = "You're a small town girl.";
+
+        let src_file_path = create_test_file_path("encrypted-file.txt");
+        create_test_file_with_content(src_file_path.clone(), content.clone());
+
+        let src_file = File::open(src_file_path.clone(), FileAccessOptions::ReadOnly).unwrap();
+        let password = String::from("we're the king and queen of hearts");
+        let mut task = EncryptionTask::new(src_file, password.into_bytes()).unwrap();
+        let res = task.run(None, None, None, None);
+        assert!(res.is_ok());
+
+        let dest_file_path = append_file_extension_to_path(src_file_path.clone(), ".ssef");
+        let dest_file = File::open(dest_file_path.clone(), FileAccessOptions::ReadOnly).unwrap();
+        let password = String::from("wrongus passwordus");
+        let res = DecryptionTask::new(dest_file, password.into_bytes());
+        assert!(res.is_err());
+        assert!(matches!(res.unwrap_err(), Error::IncorrectPassword));
+    }
+
+    #[test]
+    fn test_creating_new_decryption_task_with_preexisting_dest_file_fails() {
+        let content = "You're a small town girl.";
+
+        let src_file_path = create_test_file_path("encrypted-file.txt");
+        create_test_file_with_content(src_file_path.clone(), content.clone());
+
+        let src_file = File::open(src_file_path.clone(), FileAccessOptions::ReadOnly).unwrap();
+        let password = String::from("we're the king and queen of hearts");
+        let mut task = EncryptionTask::new(src_file, password.clone().into_bytes()).unwrap();
+        let res = task.run(None, None, None, None);
+        assert!(res.is_ok());
+
+        create_test_file(src_file_path.clone());
+
+        let dest_file_path = append_file_extension_to_path(src_file_path.clone(), ".ssef");
+        let dest_file = File::open(dest_file_path.clone(), FileAccessOptions::ReadOnly).unwrap();
+        let mut task = DecryptionTask::new(dest_file, password.clone().into_bytes()).unwrap();
+        let res = task.run(None, None, None, None);
+        assert!(res.is_err());
+        assert!(matches!(res.unwrap_err(), Error::FileExists(_)));
     }
 }

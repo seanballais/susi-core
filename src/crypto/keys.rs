@@ -1,4 +1,3 @@
-use std::error::Error;
 use std::sync::Arc;
 use argon2::Algorithm::Argon2id;
 use hmac::{Hmac, Mac};
@@ -93,8 +92,9 @@ pub fn is_password_correct(password: &[u8], salt: &[u8], mac: &MAC) -> Result<bo
 
 #[cfg(test)]
 mod tests {
-    use crate::crypto::keys::SusiKey;
+    use crate::crypto::keys::{is_password_correct, SusiKey};
     use crate::errors;
+    use crate::errors::Error;
 
     const PASSWORD: &[u8] = b"balang araw masusulat ko kaya";
     const SALT: &[u8] = b"ang kanta na bibili ng bahay sa sta. rosa";
@@ -135,5 +135,29 @@ mod tests {
         assert!(res.is_err());
 
         assert!(matches!(res.unwrap_err(), errors::Error::InvalidSaltLength));
+    }
+
+    #[test]
+    fn test_password_verification_with_correct_password_succeeds() {
+        let key = SusiKey::new(PASSWORD, SALT).unwrap();
+        let res = is_password_correct(PASSWORD, SALT, &key.mac);
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap(), true);
+    }
+
+    #[test]
+    fn test_password_verification_with_short_password_fails() {
+        let key = SusiKey::new(PASSWORD, SALT).unwrap();
+        let res = is_password_correct(b"iincorrectus", SALT, &key.mac);
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap(), false);
+    }
+
+    #[test]
+    fn test_password_verification_with_wrong_password_fails() {
+        let key = SusiKey::new(PASSWORD, SALT).unwrap();
+        let res = is_password_correct(b"shortus", SALT, &key.mac);
+        assert!(res.is_err());
+        assert!(matches!(res.unwrap_err(), Error::PasswordVerification(_)));
     }
 }

@@ -295,8 +295,9 @@ mod tests {
     use crate::fs::{append_file_extension_to_path, copy_file_contents, File, FileAccessOptions};
     use std::fs;
     use std::io::{Read, Seek, SeekFrom, Write};
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
     use tempfile::tempdir;
+    use crate::testing::{create_test_file, create_test_file_path, create_test_file_with_content};
 
     #[test]
     fn test_file_open_read_only_preexisting_file_works_successfully() {
@@ -771,8 +772,8 @@ mod tests {
         let write_count = write_result.unwrap();
         assert_eq!(write_count, content.len());
 
-        // We always need to rewind the the file's pointer if we want to
-        // read its contents properly.
+        // We always need to rewind the file's pointer if we want to read its
+        // contents properly.
         let rewind_result = file.rewind();
         assert!(rewind_result.is_ok());
 
@@ -840,28 +841,5 @@ mod tests {
         dest_file.get_file_mut().rewind().unwrap();
         dest_file.get_file().read_to_string(&mut contents).unwrap();
         assert_eq!(contents, TEST_CONTENT);
-    }
-
-    #[inline]
-    fn create_test_file<P: AsRef<Path>>(path: P) {
-        // We need to create the file first.
-        let res = File::touch(path.as_ref());
-        assert!(res.is_ok());
-    }
-
-    #[inline]
-    fn create_test_file_with_content<P: AsRef<Path>, S: AsRef<str>>(path: P, content: S) {
-        let mut file = File::open(path.as_ref(), FileAccessOptions::WriteCreate).unwrap();
-        let res = file.get_file_mut().write(content.as_ref().as_bytes());
-        assert!(res.is_ok());
-    }
-
-    #[inline]
-    fn create_test_file_path<S: AsRef<str>>(file_name: S) -> PathBuf {
-        let temp_dir = tempdir().unwrap().into_path();
-        let mut file_path = temp_dir.clone();
-        file_path.push(file_name.as_ref());
-
-        file_path
     }
 }

@@ -9,6 +9,7 @@ mod path;
 mod tasks;
 mod workers;
 mod constants;
+mod testing;
 
 pub fn init_core_systems() {
     logging::init_logging();

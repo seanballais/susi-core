@@ -63,6 +63,7 @@ pub enum Error {
     None, // Only use this as a default value.
     Copy(Copy),
     FileExists(PathBuf),
+    IncorrectPassword,
     InvalidPasswordLength,
     InvalidSaltLength,
     InvalidSSEFFile,
@@ -108,6 +109,7 @@ impl Display for Error {
                     e.message
                 )
             },
+            Self::IncorrectPassword => write!(f, "Incorrect password"),
             Self::InvalidPasswordLength => {
                 write!(f, "Password must be more than {} bytes", MINIMUM_PASSWORD_LENGTH)
             },

@@ -5,7 +5,7 @@ use aead::KeyInit;
 use aead::stream::DecryptorBE32;
 use aes_gcm::Aes256Gcm;
 use crate::crypto::common::AES256GCMNonce;
-use crate::crypto::keys::SusiKey;
+use crate::crypto::keys::{is_password_correct, SusiKey};
 use crate::crypto::ssef::{get_metadata_section_from_ssef_file, validate_ssef_file_format_version, validate_ssef_file_identifier};
 use crate::errors;
 use crate::errors::Error;
@@ -47,6 +47,9 @@ pub fn decrypt_from_ssef_file(
     validate_ssef_file_format_version(src_file)?;
 
     let metadata = get_metadata_section_from_ssef_file(src_file)?;
+    if !is_password_correct(password, metadata.salt.as_slice(), &metadata.mac)? {
+        return Err(Error::IncorrectPassword);
+    }
 
     let key = SusiKey::new(password, metadata.salt.as_slice())?;
     let nonce: AES256GCMNonce = metadata.nonce.into();

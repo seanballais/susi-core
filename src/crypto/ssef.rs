@@ -70,7 +70,7 @@ pub fn get_metadata_section_from_ssef_file(src_file: &mut File) -> crate::errors
     })
 }
 
-pub(super) fn create_metadata_section_for_encrypted_file(
+pub fn create_metadata_section_for_encrypted_file(
     src_file: &File,
     salt: &[u8],
     key_mac: &MAC,
@@ -102,7 +102,7 @@ pub(super) fn create_metadata_section_for_encrypted_file(
     Ok(metadata_section)
 }
 
-pub(super) fn create_filename_metadata_item(src_file: &File) -> crate::errors::Result<Vec<u8>> {
+pub fn create_filename_metadata_item(src_file: &File) -> crate::errors::Result<Vec<u8>> {
     // Note: No needed to check if the file name is too long, since the chances of it happening is
     //       low, and we will get an error outside the app if the file name is too long.
     let src_file_name = src_file
@@ -126,7 +126,7 @@ pub(super) fn create_filename_metadata_item(src_file: &File) -> crate::errors::R
     Ok(metadata_filename)
 }
 
-pub(super) fn create_salt_metadata_item(salt: &[u8]) -> Vec<u8> {
+pub fn create_salt_metadata_item(salt: &[u8]) -> Vec<u8> {
     let mut salt_metadata: Vec<u8> = Vec::with_capacity(4 + salt.len());
     salt_metadata.push(0xA5);
     salt_metadata.push(0x19);
@@ -142,7 +142,7 @@ pub(super) fn create_salt_metadata_item(salt: &[u8]) -> Vec<u8> {
     salt_metadata
 }
 
-pub(super) fn create_key_mac_metadata_item(mac: &[u8]) -> Vec<u8> {
+pub fn create_key_mac_metadata_item(mac: &[u8]) -> Vec<u8> {
     let mut metadata: Vec<u8> = Vec::with_capacity(4 + mac.len());
     metadata.push(0x44);
     metadata.push(0xAC);
@@ -158,7 +158,7 @@ pub(super) fn create_key_mac_metadata_item(mac: &[u8]) -> Vec<u8> {
     metadata
 }
 
-pub(super) fn create_nonce_metadata_item(nonce: &AES256GCMNonce) -> Vec<u8> {
+pub fn create_nonce_metadata_item(nonce: &AES256GCMNonce) -> Vec<u8> {
     let mut nonce_metadata: Vec<u8> = Vec::with_capacity(4 + nonce.len());
     nonce_metadata.push(0x90);
     nonce_metadata.push(0x9C);
@@ -174,7 +174,7 @@ pub(super) fn create_nonce_metadata_item(nonce: &AES256GCMNonce) -> Vec<u8> {
     nonce_metadata
 }
 
-pub(super) fn validate_ssef_file_identifier(src_file: &mut File) -> crate::errors::Result<()> {
+pub fn validate_ssef_file_identifier(src_file: &mut File) -> crate::errors::Result<()> {
     let mut file_identifier_buffer = [0u8; 2];
     src_file.read(&mut file_identifier_buffer)?;
     if file_identifier_buffer != [0x55, 0x3F] {
@@ -184,7 +184,7 @@ pub(super) fn validate_ssef_file_identifier(src_file: &mut File) -> crate::error
     Ok(())
 }
 
-pub(super) fn validate_ssef_file_format_version(src_file: &mut File) -> crate::errors::Result<()> {
+pub fn validate_ssef_file_format_version(src_file: &mut File) -> crate::errors::Result<()> {
     let mut file_format_version_buffer = [0u8; 2];
     src_file.seek(SeekFrom::Start(2))?;
     src_file.read(&mut file_format_version_buffer)?;
