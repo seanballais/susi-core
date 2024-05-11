@@ -7,6 +7,7 @@ use crate::crypto::keys::{MAC, MAC_SIZE};
 use crate::errors::Error;
 use crate::fs::File;
 
+#[derive(Debug)]
 pub struct SSEFMetadata {
     pub filename: String,
     pub salt: Vec<u8>,

@@ -3,6 +3,8 @@ use std::ffi::{CStr, CString};
 use std::sync::atomic::Ordering;
 use std::{mem, ptr};
 
+use crate::crypto::keys::is_password_correct;
+use crate::crypto::ssef::get_metadata_section_from_ssef_file;
 use crate::ffi::errors::update_last_error;
 use crate::fs::{File, FileAccessOptions};
 use crate::tasks as susi_tasks;
@@ -95,7 +97,44 @@ pub extern "C" fn queue_encryption_task(
 
     match TASK_MANAGER.queue_encryption_task(src_file, password_string.into_bytes()) {
         Ok(task_id) => {
-            tracing::info!("Task (ID: {}) queued", task_id.clone());
+            tracing::info!("Encryption task (ID: {}) queued", task_id.clone());
+            Box::into_raw(Box::new(TaskID::from(task_id)))
+        }
+        Err(e) => {
+            update_last_error(e);
+
+            ptr::null_mut()
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn queue_decryption_task(
+    target_file: *const c_char,
+    password: *const c_char,
+) -> *mut TaskID {
+    let src_file_c_str = unsafe {
+        assert!(!target_file.is_null());
+
+        CStr::from_ptr(target_file)
+    };
+    let src_file_path = src_file_c_str.to_string_lossy().into_owned();
+    let password_c_str = unsafe {
+        assert!(!password.is_null());
+
+        CStr::from_ptr(password)
+    };
+    let password_string = password_c_str.to_string_lossy().into_owned();
+
+    let src_file = open_file_or_return_on_err!(
+        File::open(src_file_path.clone(), FileAccessOptions::ReadWrite),
+        src_file_path.clone(),
+        ptr::null_mut()
+    );
+
+    match TASK_MANAGER.queue_decryption_task(src_file, password_string.into_bytes()) {
+        Ok(task_id) => {
+            tracing::info!("Decryption task (ID: {}) queued", task_id.clone());
             Box::into_raw(Box::new(TaskID::from(task_id)))
         }
         Err(e) => {
@@ -149,6 +188,50 @@ pub extern "C" fn get_task_status(ptr: *const TaskID) -> *mut TaskStatus {
     }
 
     ptr::null_mut()
+}
+
+#[no_mangle]
+pub extern "C" fn is_password_correct_for_file(
+    target_file: *const c_char,
+    password: *const c_char
+) -> bool {
+    let src_file_c_str = unsafe {
+        assert!(!target_file.is_null());
+
+        CStr::from_ptr(target_file)
+    };
+    let src_file_path = src_file_c_str.to_string_lossy().into_owned();
+    let password_c_str = unsafe {
+        assert!(!password.is_null());
+
+        CStr::from_ptr(password)
+    };
+    let password_string = password_c_str.to_string_lossy().into_owned();
+
+    let mut src_file = open_file_or_return_on_err!(
+        File::open(src_file_path.clone(), FileAccessOptions::ReadWrite),
+        src_file_path.clone(),
+        false
+    );
+
+    let res = get_metadata_section_from_ssef_file(&mut src_file);
+    if res.is_err() {
+        let error = res.unwrap_err();
+        update_last_error(error);
+
+        return false;
+    }
+
+    let metadata = res.unwrap();
+    let res = is_password_correct(password_string.as_bytes(), metadata.salt.as_slice(), &metadata.mac);
+    if res.is_err() {
+        let error = res.unwrap_err();
+        update_last_error(error);
+
+        return false;
+    }
+
+    res.unwrap()
 }
 
 #[no_mangle]
