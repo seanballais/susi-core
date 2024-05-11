@@ -67,16 +67,20 @@ impl TaskManager {
         let task_id = task.id.clone();
         self.queue_task(Box::new(task));
 
-        let mut task_statuses = self.task_statuses.lock().unwrap();
-        let status = TaskStatus::new();
-        task_statuses.insert(task_id.clone(), Arc::new(Mutex::new(status)));
+        self.add_new_task_status(task_id.clone());
 
         Ok(task_id.clone())
     }
 
-    /*pub fn queue_decryption_task(&self, src_file: File, password: Vec<u8>) -> Result<TaskID> {
-        let task = DecryptionTask::new()
-    }*/
+    pub fn queue_decryption_task(&self, src_file: File, password: Vec<u8>) -> Result<TaskID> {
+        let task = DecryptionTask::new(src_file, password)?;
+        let task_id = task.id.clone();
+        self.queue_task(Box::new(task));
+
+        self.add_new_task_status(task_id.clone());
+
+        Ok(task_id.clone())
+    }
 
     pub fn pop_task(&self) -> TaskObject {
         self.task_queue.pop()
@@ -123,6 +127,12 @@ impl TaskManager {
         self.task_queue.push(task);
 
         id
+    }
+
+    fn add_new_task_status(&self, id: TaskID) {
+        let mut task_statuses = self.task_statuses.lock().unwrap();
+        let status = TaskStatus::new();
+        task_statuses.insert(id, Arc::new(Mutex::new(status)));
     }
 }
 
