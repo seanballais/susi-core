@@ -17,85 +17,88 @@ mod tests {
     use std::io::{Read, Seek, Write};
     use rand::{rngs::OsRng, RngCore};
     use tempfile::tempfile;
+    use crate::constants::IO_BUFFER_LEN;
     use crate::crypto::decryption::{decrypt_file, decrypt_from_ssef_file};
     use crate::crypto::encryption::{encrypt_file, encrypt_to_ssef_file};
 
     use crate::crypto::keys::SusiKey;
     use crate::errors::Error;
-    use crate::fs::{File};
+    use crate::fs::{File, FileAccessOptions};
+    use crate::testing::{create_test_file, create_test_file_path, create_test_file_with_content};
 
     use super::*;
 
     #[test]
     fn test_encrypting_and_decrypting_ssef_file_succeeds() {
-        let mut src_file = File::from(tempfile().unwrap());
-        let mut encrypted_file = File::from(tempfile().unwrap());
-        let mut decrypted_file = File::from(tempfile().unwrap());
-
         let contents = concat!(
-        "I can see what's happening\n",
-        "What?\n",
-        "Our trio's down to two!\n",
-        "(lyrics)\n",
-        "_CAN_ YOU FEEL THE LOVE TONIGHT?!\n",
-        "The world for once, in perfect harmony\n",
-        "With all its living things\n",
-        "So many things to tell youuu\n",
-        "She'd turn away from meee"
+            "Lost and all alone\n",
+            "I've always thought that I can make it on my own\n",
+            "Since you left, I hardly make it through the day\n",
+            "But tears get in the way\n",
+            "And I need you back to stay\n",
+            "I wonder through the night\n",
+            "And search the world to find the words to make it right\n",
+            "All I want is the way it used to be\n",
+            "With you here close to me\n",
+            "I've got to make you see\n",
+            "THAT I AM LOST WITHOUT YOUR LOOOOOVVEEEE\n",
+            "LIFE WITHOUT YOU ISN'T WORTH THE TROUBLE OFFFFF!!!"
         );
-        writeln!(src_file.get_file_mut(), "{}", contents).unwrap();
 
-        // We need to wind back the file pointer in src_file since we wrote contents to it.
-        src_file.rewind().unwrap();
+        let src_file_path = create_test_file_path("unencrypted-file.txt");
+        create_test_file_with_content(src_file_path.clone(), contents);
+        let mut src_file = File::open(src_file_path.clone(), FileAccessOptions::ReadOnly).unwrap();
 
-        let password = b"sa tuwing nakikita kong magkasama na kayooo";
-        let salt = b"naiinis ako nasisira ang araw ko, at di ko alam bakit ba nagkakaganto";
-        let mut nonce = AES256GCMNonce::default();
-        OsRng.fill_bytes(&mut nonce);
+        let password = b"cause I'm lost without your love";
+        let salt = b"life without you ain't worth the trouble of";
+        let mut aes_nonce = AES256GCMNonce::default();
+        OsRng.fill_bytes(&mut aes_nonce);
 
-        const BUFFER_LEN: usize = 1_048_576; // Equals to 1 MiB.
-
-        let encryption_result = encrypt_to_ssef_file(
-            &mut src_file,
-            &mut encrypted_file,
-            password,
-            salt,
-            &nonce,
-            &BUFFER_LEN,
-            None,
-            None,
-            None,
-            None,
-        );
-        assert!(encryption_result.is_ok());
-
-        // We need to wind back the file pointer in encrypted_file since we wrote contents to it.
-        encrypted_file.rewind().unwrap();
-
-        let decryption_result = decrypt_from_ssef_file(
-            &mut encrypted_file,
-            &mut decrypted_file,
-            password,
-            &BUFFER_LEN,
-            None,
-            None,
-            None,
-            None,
-        );
-        assert!(decryption_result.is_ok());
-
-        // We need to wind back the file pointer in the files below since we used them before.
-        src_file.rewind().unwrap();
-        decrypted_file.rewind().unwrap();
-
-        let mut original_contents = String::new();
-        let mut decrypted_contents = String::new();
-        src_file.read_to_string(&mut original_contents).unwrap();
-        decrypted_file
-            .read_to_string(&mut decrypted_contents)
+        let encrypted_file_path = create_test_file_path("unencrypted-file.ssef");
+        create_test_file(encrypted_file_path.clone());
+        let mut encrypted_file = File::open(encrypted_file_path.clone(), FileAccessOptions::ReadWrite)
             .unwrap();
 
-        assert_eq!(original_contents.trim(), decrypted_contents.trim());
+        let result = encrypt_to_ssef_file(
+            &mut src_file,
+            &mut encrypted_file,
+            &password.as_slice(),
+            &salt.as_slice(),
+            &aes_nonce,
+            &IO_BUFFER_LEN,
+            None,
+            None,
+            None,
+            None,
+        );
+        assert!(result.is_ok());
+
+        encrypted_file.rewind().unwrap();
+
+        let decrypted_file_path = create_test_file_path("decrypted.txt");
+        create_test_file(decrypted_file_path.clone());
+        let mut decrypted_file = File::open(decrypted_file_path.clone(), FileAccessOptions::ReadWrite)
+            .unwrap();
+
+        let result = decrypt_from_ssef_file(
+            &mut encrypted_file,
+            &mut decrypted_file,
+            &password.as_slice(),
+            &IO_BUFFER_LEN,
+            None,
+            None,
+            None,
+            None,
+        );
+        assert!(result.is_ok());
+
+        // We need to wind back the file pointer in the decrypted file since we used them before.
+        decrypted_file.rewind().unwrap();
+
+        let mut decrypted_contents = String::new();
+        decrypted_file.read_to_string(&mut decrypted_contents).unwrap();
+
+        assert_eq!(contents.trim(), decrypted_contents.trim());
     }
 
     #[test]
@@ -191,9 +194,7 @@ mod tests {
         let mut original_contents = String::new();
         let mut decrypted_contents = String::new();
         src_file.read_to_string(&mut original_contents).unwrap();
-        decrypted_file
-            .read_to_string(&mut decrypted_contents)
-            .unwrap();
+        decrypted_file.read_to_string(&mut decrypted_contents).unwrap();
 
         assert_eq!(original_contents.trim(), decrypted_contents.trim());
     }
@@ -245,7 +246,6 @@ mod tests {
             None,
             None,
         );
-        assert!(result.is_err());
-        assert!(matches!(result, Err(Error::InvalidSSEFFile)));
+        assert!(result.is_ok());
     }
 }

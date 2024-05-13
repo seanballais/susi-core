@@ -176,6 +176,8 @@ pub fn create_nonce_metadata_item(nonce: &AES256GCMNonce) -> Vec<u8> {
 }
 
 pub fn validate_ssef_file_identifier(src_file: &mut File) -> crate::errors::Result<()> {
+    src_file.seek(SeekFrom::Start(0))?;
+
     let mut file_identifier_buffer = [0u8; 2];
     src_file.read(&mut file_identifier_buffer)?;
     if file_identifier_buffer != [0x55, 0x3F] {
@@ -186,6 +188,8 @@ pub fn validate_ssef_file_identifier(src_file: &mut File) -> crate::errors::Resu
 }
 
 pub fn validate_ssef_file_format_version(src_file: &mut File) -> crate::errors::Result<()> {
+    src_file.seek(SeekFrom::Start(2))?;
+
     let mut file_format_version_buffer = [0u8; 2];
     src_file.seek(SeekFrom::Start(2))?;
     src_file.read(&mut file_format_version_buffer)?;

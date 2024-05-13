@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use aead::KeyInit;
 use aead::stream::EncryptorBE32;
 use aes_gcm::Aes256Gcm;
+
 use crate::crypto::common::AES256GCMNonce;
 use crate::crypto::keys::SusiKey;
 use crate::crypto::ssef::create_metadata_section_for_encrypted_file;

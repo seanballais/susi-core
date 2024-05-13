@@ -4,7 +4,7 @@ use crate::init_core_systems;
 pub mod errors;
 mod logging;
 mod tasks;
-mod validation;
+mod verification;
 mod files;
 
 #[no_mangle]

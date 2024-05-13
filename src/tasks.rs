@@ -4,7 +4,7 @@ use std::fs;
 use std::io::Seek;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use once_cell::sync::Lazy;
 use rand::distributions::{Alphanumeric, DistString};
@@ -483,8 +483,112 @@ mod tests {
     use crate::constants::IO_BUFFER_LEN;
     use crate::errors::Error;
     use crate::fs::{append_file_extension_to_path, File, FileAccessOptions};
-    use crate::tasks::{DecryptionTask, EncryptionTask, Task};
+    use crate::logging::init_logging;
+    use crate::tasks::{DecryptionTask, EncryptionTask, Task, TASK_MANAGER, TaskProgress};
     use crate::testing::{create_test_file, create_test_file_path, create_test_file_with_content};
+    use crate::workers::{init_worker_pool};
+
+    #[test]
+    fn test_queuing_decryption_task_with_task_manager() {
+        init_logging();
+
+        TASK_MANAGER.kick_start();
+        init_worker_pool();
+
+        let contents = "this-is-a-test-file";
+        let unencrypted_file_path = create_test_file_path("unencrypted-file.txt");
+        create_test_file_with_content(unencrypted_file_path.clone(), contents);
+        let unencrypted_file = File::open(
+            unencrypted_file_path.clone(),
+            FileAccessOptions::ReadOnly
+        ).unwrap();
+
+        let password = "adecentlysizedpassword";
+
+        let result = TASK_MANAGER.queue_encryption_task(
+            unencrypted_file,
+            Vec::from(password.as_bytes())
+        );
+        assert!(result.is_ok());
+
+        let encryption_task_id = result.unwrap();
+
+        let encrypted_file_path = append_file_extension_to_path(
+            unencrypted_file_path.clone(),
+            ".ssef"
+        );
+
+        // Loop until encryption is done or has failed.
+        loop {
+            let task_status_availability = TASK_MANAGER
+                .get_task_status(&encryption_task_id);
+            if task_status_availability.is_none() {
+                break;
+            }
+
+            let task_status = task_status_availability.unwrap();
+            let status = task_status.lock().unwrap();
+            let progress = status.get_progress();
+            if progress == TaskProgress::Done {
+                break;
+            } else if progress == TaskProgress::Failed || progress == TaskProgress::Interrupted {
+                panic!("Encryption for {:?} failed", unencrypted_file_path.clone());
+            }
+
+            // Release the guard to make sure the worker threads can continue processing.
+            drop(status);
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+
+        let encrypted_file_path = append_file_extension_to_path(
+            unencrypted_file_path.clone(),
+            ".ssef"
+        );
+        let encrypted_file = File::open(
+            encrypted_file_path.clone(),
+            FileAccessOptions::ReadOnly
+        ).unwrap();
+
+        let result = TASK_MANAGER.queue_decryption_task(
+            encrypted_file,
+            Vec::from(password.as_bytes())
+        );
+        assert!(result.is_ok());
+
+        let decryption_task_id = result.unwrap();
+
+        // Loop until decryption is done or has failed.
+        loop {
+            let task_status_availability = TASK_MANAGER
+                .get_task_status(&decryption_task_id);
+            if task_status_availability.is_none() {
+                break;
+            }
+
+            let task_status = task_status_availability.unwrap();
+            let status = task_status.lock().unwrap();
+            let progress = status.get_progress();
+            if progress == TaskProgress::Done {
+                break;
+            } else if progress == TaskProgress::Failed || progress == TaskProgress::Interrupted {
+                panic!("Decryption for {:?} failed", encrypted_file_path.clone());
+            }
+
+            // Release the guard to make sure the worker threads can continue processing.
+            drop(status);
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+
+        let mut decrypted_file = File::open(
+            unencrypted_file_path.clone(),
+            FileAccessOptions::ReadOnly
+        ).unwrap();
+        let mut decrypted_contents = String::from("");
+        let result = decrypted_file.read_to_string(&mut decrypted_contents);
+        assert!(result.is_ok());
+
+        assert_eq!(contents.trim(), decrypted_contents);
+    }
 
     #[test]
     fn test_creating_new_encryption_task_properly_works_successfully() {

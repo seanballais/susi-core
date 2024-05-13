@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use aead::KeyInit;
 use aead::stream::DecryptorBE32;
 use aes_gcm::Aes256Gcm;
+
 use crate::crypto::common::AES256GCMNonce;
 use crate::crypto::keys::{is_password_correct, SusiKey};
 use crate::crypto::ssef::{get_metadata_section_from_ssef_file, validate_ssef_file_format_version, validate_ssef_file_identifier};
@@ -105,7 +106,7 @@ pub(super) fn decrypt_file(
         }
 
         if read_count == 0 {
-            return Err(Error::InvalidSSEFFile);
+            break;
         } else if read_count == *buffer_len {
             let decrypted = stream_decryptor.decrypt_next(buffer.as_slice())?;
             let write_count = dest_file.write(&decrypted)?;

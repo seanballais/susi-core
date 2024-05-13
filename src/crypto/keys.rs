@@ -21,8 +21,6 @@ pub struct SusiKey {
 
 impl SusiKey {
     pub fn new(password: &[u8], salt: &[u8]) -> Result<Self> {
-        tracing::info!("Creating key from password and salt");
-
         if password.len() < MINIMUM_PASSWORD_LENGTH {
             return Err(errors::Error::InvalidPasswordLength);
         }

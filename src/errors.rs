@@ -137,9 +137,9 @@ impl Display for Error {
                 f, "Failed to verify provided password: {}", e.to_string()
             ),
             Self::UnsupportedSSEFFormatVersion => write!(f, "Format version is not supported"),
-            Self::AEAD(e) => write!(f, "Error while using AEAD functions: {}", e),
-            Self::Argon2(e) => write!(f, "Error while using Argon2 functions: {}", e),
-            Self::FromUTF8(e) => write!(f, "Error while create string from bytes: {}", e),
+            Self::AEAD(e) => write!(f, "Error while using AEAD functions: {}", e.to_string()),
+            Self::Argon2(e) => write!(f, "Error while using Argon2 functions: {}", e.to_string()),
+            Self::FromUTF8(e) => write!(f, "Error while create string from bytes: {}", e.to_string()),
             Self::IO(e) => write!(
                 f,
                 "{} ({}): {}",

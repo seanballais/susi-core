@@ -9,7 +9,7 @@ name = "susi_core"
 crate-type = ["cdylib"]
 
 [dependencies]
-aead = "0.5.2"
+aead = { version = "0.5.2", features = ["alloc"]}
 aes-gcm = { version = "0.10.3", features = ["stream"] }
 argon2 = { version = "0.5.3", features = ["std"] }
 filepath = "0.1.2"
