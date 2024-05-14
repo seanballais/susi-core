@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use filepath::FilePath;
 
-use crate::constants::IO_BUFFER_LEN;
+use crate::constants::IO_BUFFER_BYTES_LEN;
 use crate::errors::{Copy, Error, Result, IO};
 use crate::path::PathExt;
 
@@ -277,7 +277,7 @@ pub fn copy_file_contents(src_file: &mut File, dest_file: &mut File) -> Result<(
     }
 
     // No progress notification here yet, but this should provide the foundation.
-    let mut buffer = [0u8; IO_BUFFER_LEN];
+    let mut buffer = [0u8; IO_BUFFER_BYTES_LEN];
     loop {
         let read_count = src_file.read_data(&mut buffer)?;
         if read_count == 0 {

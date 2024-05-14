@@ -1,9 +1,10 @@
-use std::io::{Read, Seek, Write};
+use std::io::{Read, Seek};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use aead::KeyInit;
 use aead::stream::DecryptorBE32;
 use aes_gcm::Aes256Gcm;
+use crate::constants::AUTH_TAG_BYTES_LEN;
 
 use crate::crypto::common::AES256GCMNonce;
 use crate::crypto::keys::{is_password_correct, SusiKey};
@@ -81,10 +82,12 @@ pub(super) fn decrypt_file(
     num_processed_bytes: Option<Arc<AtomicUsize>>,
     should_stop: Option<Arc<AtomicBool>>,
 ) -> errors::Result<()> {
+    let decryption_buffer_len: usize = buffer_len + AUTH_TAG_BYTES_LEN;
+
     let aead = Aes256Gcm::new(key.key.as_ref().into());
     let mut stream_decryptor = DecryptorBE32::from_aead(aead, nonce.as_ref().into());
 
-    let mut buffer = vec![0u8; *buffer_len];
+    let mut buffer = vec![0u8; decryption_buffer_len];
 
     tracing::info!(
         "Decrypting data from {} to {}",
@@ -107,9 +110,9 @@ pub(super) fn decrypt_file(
 
         if read_count == 0 {
             break;
-        } else if read_count == *buffer_len {
+        } else if read_count == decryption_buffer_len {
             let decrypted = stream_decryptor.decrypt_next(buffer.as_slice())?;
-            let write_count = dest_file.write(&decrypted)?;
+            let write_count = dest_file.write_data(&decrypted)?;
 
             if let Some(ref num_bytes) = num_written_bytes {
                 num_bytes.fetch_add(write_count, Ordering::Relaxed);
@@ -119,13 +122,7 @@ pub(super) fn decrypt_file(
             }
         } else {
             let decrypted = stream_decryptor.decrypt_last(&buffer[..read_count])?;
-            let write_count = dest_file.write(&decrypted).map_err(|e| {
-                errors::IO::new(
-                    "Unable to write to file",
-                    dest_file.path().clone(),
-                    Arc::from(e),
-                )
-            })?;
+            let write_count = dest_file.write_data(&decrypted)?;
 
             if let Some(num_bytes) = num_written_bytes {
                 num_bytes.fetch_add(write_count, Ordering::Relaxed);

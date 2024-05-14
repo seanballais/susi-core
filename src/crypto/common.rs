@@ -17,7 +17,7 @@ mod tests {
     use std::io::{Read, Seek, Write};
     use rand::{rngs::OsRng, RngCore};
     use tempfile::tempfile;
-    use crate::constants::IO_BUFFER_LEN;
+    use crate::constants::IO_BUFFER_BYTES_LEN;
     use crate::crypto::decryption::{decrypt_file, decrypt_from_ssef_file};
     use crate::crypto::encryption::{encrypt_file, encrypt_to_ssef_file};
 
@@ -65,7 +65,7 @@ mod tests {
             &password.as_slice(),
             &salt.as_slice(),
             &aes_nonce,
-            &IO_BUFFER_LEN,
+            &IO_BUFFER_BYTES_LEN,
             None,
             None,
             None,
@@ -84,7 +84,7 @@ mod tests {
             &mut encrypted_file,
             &mut decrypted_file,
             &password.as_slice(),
-            &IO_BUFFER_LEN,
+            &IO_BUFFER_BYTES_LEN,
             None,
             None,
             None,

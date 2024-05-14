@@ -4,14 +4,14 @@ use std::fs;
 use std::io::Seek;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 
 use once_cell::sync::Lazy;
 use rand::distributions::{Alphanumeric, DistString};
 use rand::{rngs::OsRng, RngCore};
 use tempfile::tempfile;
 use uuid::Uuid;
-use crate::constants::IO_BUFFER_LEN;
+use crate::constants::IO_BUFFER_BYTES_LEN;
 use crate::crypto::common::{AES256GCMNonce, MINIMUM_PASSWORD_LENGTH, MINIMUM_SALT_LENGTH};
 use crate::crypto::decryption::decrypt_from_ssef_file;
 use crate::crypto::encryption::encrypt_to_ssef_file;
@@ -169,7 +169,7 @@ impl EncryptionTask {
             password,
             salt,
             nonce,
-            buffer_len: IO_BUFFER_LEN,
+            buffer_len: IO_BUFFER_BYTES_LEN,
         })
     }
 }
@@ -290,7 +290,7 @@ impl DecryptionTask {
             id,
             src_file: file,
             password,
-            buffer_len: IO_BUFFER_LEN,
+            buffer_len: IO_BUFFER_BYTES_LEN,
         })
     }
 }
@@ -480,18 +480,15 @@ mod tests {
     use std::io::{Read, Seek, Write};
     use tempfile::tempfile;
 
-    use crate::constants::IO_BUFFER_LEN;
+    use crate::constants::IO_BUFFER_BYTES_LEN;
     use crate::errors::Error;
     use crate::fs::{append_file_extension_to_path, File, FileAccessOptions};
-    use crate::logging::init_logging;
     use crate::tasks::{DecryptionTask, EncryptionTask, Task, TASK_MANAGER, TaskProgress};
     use crate::testing::{create_test_file, create_test_file_path, create_test_file_with_content};
     use crate::workers::{init_worker_pool};
 
     #[test]
     fn test_queuing_decryption_task_with_task_manager() {
-        init_logging();
-
         TASK_MANAGER.kick_start();
         init_worker_pool();
 
@@ -621,7 +618,7 @@ mod tests {
         assert!(!task.password.is_empty());
         assert!(!task.salt.is_empty());
         assert!(!task.nonce.is_empty());
-        assert_eq!(task.buffer_len, IO_BUFFER_LEN);
+        assert_eq!(task.buffer_len, IO_BUFFER_BYTES_LEN);
     }
 
     #[test]

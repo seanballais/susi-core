@@ -53,7 +53,10 @@ struct Worker {
 impl Worker {
     pub fn new(id: u32) -> Self {
         tracing::info!("Creating new worker (ID: {})", id);
-        let thread = thread::spawn(move || {
+        let worker_name = format!("Worker {}", id);
+        let mut builder = thread::Builder::new().name(worker_name);
+
+        let thread = builder.spawn(move || {
             tracing::span!(Level::INFO, "worker_thread", worker_id = id);
             loop {
                 tracing::info!("Worker {} is waiting for a new task.", id);
@@ -92,7 +95,7 @@ impl Worker {
                     }
                 }
             }
-        });
+        }).unwrap();
 
         Self { id, thread }
     }

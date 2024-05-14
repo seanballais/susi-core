@@ -3,8 +3,6 @@ use std::ffi::{CStr, CString};
 use std::sync::atomic::Ordering;
 use std::{mem, ptr};
 
-use crate::crypto::keys::is_password_correct;
-use crate::crypto::ssef::get_metadata_section_from_ssef_file;
 use crate::ffi::errors::update_last_error;
 use crate::ffi::files::open_file_or_return_on_err;
 use crate::fs::{File, FileAccessOptions};
