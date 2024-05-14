@@ -354,6 +354,26 @@ impl Task for DecryptionTask {
 
         copy_file_contents(&mut temp_dest_file, &mut dest_file)?;
 
+        // Time to delete the encrypted file.
+        let result = fs::remove_file(self.src_file.path_or_empty());
+        if result.is_err() {
+            // We should remove the copied encrypted file then.
+            let result = fs::remove_file(dest_file.path_or_empty());
+            if result.is_err() {
+                return Err(Error::IO(IO::new(
+                    String::from("Unable to remove the decrypted file"),
+                    dest_file.path(),
+                    Arc::from(result.unwrap_err()),
+                )));
+            }
+
+            return Err(Error::IO(IO::new(
+                String::from("Unable to remove the encrypted file"),
+                self.src_file.path(),
+                Arc::from(result.unwrap_err()),
+            )));
+        }
+
         Ok(())
     }
 
