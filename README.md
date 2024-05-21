@@ -4,7 +4,7 @@
 
 Susi Core is a library that allows encryption and decryption of files to protect them from unauthorized parties. This project is expected to be integrated with other applications or even libraries. This library does the majority of the work in operating on files, including but not limited to managing worker threads and assigning tasks to them. Client projects will simply have to plug into the library's interfaces to start encrypting and decrypting files.
 
-Files are encrypted to and decrypted from a custom file format called the Susi Encrypted File. Susi Core is not capable of encrypting nor decrypting other encryption file formats. See [Susi Software Specifications](#susi-software-specifications) to learn how to know more details about the file format.
+Files are encrypted to and decrypted from a custom file format called the Susi Encrypted File. Susi Core is not capable of encrypting nor decrypting other encryption file formats. See [Susi Software Specifications](#susi-software-specifications) to know where to learn more about the file format.
 
 ## Supported Platforms
 Susi Core is likely compilable in all modern versions of major desktop platforms (Windows, macOS, Linux). However, this project has only been compiled in Windows so far. Full support for the other major platforms are to be determined.
