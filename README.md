@@ -38,7 +38,7 @@ Software specifications for Susi have been written to guide us with the developm
 ## License
 Susi Core is licensed under the Mozilla Public License 2.0. See [LICENSE.md](/LICENSE.md) for details.
 
-Some code used in the project are based from online sources, such as blogs. The links to such sources are included in the individual files with code that is based off of such sources.
+Some code used in the project are based from online sources, specifically blogs. The links to such sources are included in the individual files with code based off of such sources.
 
 ## Contact
 Sean Francis N. Ballais - [@seanballais](https://twitter.com/seanballais) - [sean@seanballais.com](mailto:sean@seanballais.com)
